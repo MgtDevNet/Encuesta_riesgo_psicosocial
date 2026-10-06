@@ -1,0 +1,2393 @@
+/* custom.css — estilos propios de la app (cargado después del theme bslib)
+ *
+ * Regla de esta hoja: ningún color fijo. Todo sale de las variables que publica
+ * Bootstrap 5.3 a través de bs_theme() en app.R, así el tema se define en un
+ * solo sitio y el modo oscuro deja de necesitar parches.
+ *
+ * Las tres excepciones son los colores de estado de las tarjetas (bajo, medio,
+ * bien): son datos, no tema, y su contraste está verificado contra WCAG.
+ */
+
+/* --- Pantalla de ingreso --- */
+.auth-fondo {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.auth-tarjeta {
+  width: 100%;
+  max-width: 26rem;
+}
+
+.auth-titulo {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.auth-sub {
+  font-size: 0.875rem;
+}
+
+/* Mensajes de error del ingreso y del cambio de clave */
+.auth-alerta {
+  margin-top: 1rem;
+  margin-bottom: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+/* --- Barra de sesión (usuario + salir), encima del contenido --- */
+.auth-barra {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1.5rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  background: var(--bs-tertiary-bg);
+}
+
+/* --- Aviso de arranque cuando la base no está lista --- */
+.aviso-arranque {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.aviso-arranque .card {
+  max-width: 34rem;
+}
+
+/* =========================================================================
+   Módulo de seguimiento por dependencia
+   ========================================================================= */
+
+/* --- Fila de indicadores --- */
+.kpi-fila {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.kpi-caja {
+  flex: 1 1 8rem;
+  min-width: 8rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  background: var(--bs-tertiary-bg);
+}
+
+.kpi-valor {
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Los rótulos eran 0.75rem en mayúsculas: las versales quitan el perfil de la
+   palabra justo en el texto más pequeño de la interfaz. */
+.kpi-etiqueta {
+  font-size: 0.8125rem;
+  color: var(--bs-secondary-color);
+}
+
+/* Pie de los cajones de forma: la meta repartida y el porcentaje. Va más
+   pequeño y más tenue que el rótulo, para que se lea como una nota al pie del
+   número y no como un segundo dato compitiendo con él. */
+.kpi-pie {
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+  margin-top: 0.15rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kpi-pie .sep { opacity: 0.55; margin: 0 0.25rem; }
+
+/* Los cajones de forma llevan dentro los tres indicadores, asi que necesitan
+   mas ancho que los demas: con 8rem las tres lineas se partian en dos. */
+.kpi-caja-forma { flex: 1 1 13rem; min-width: 13rem; }
+
+/* Separados del numero grande por un filete: son una nota sobre el, no tres
+   cifras mas de la misma jerarquia. */
+.kpi-indicadores {
+  margin-top: 0.4rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--bs-border-color);
+}
+
+/* Tres columnas --nombre, porcentaje, numero-- y no texto corrido: asi las
+   tres lineas del cajon de A se comparan con las tres del de B leyendo en
+   vertical, sin buscar donde empieza cada cifra. */
+.kpi-linea {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  column-gap: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--bs-secondary-color);
+}
+
+.kpi-linea-pct,
+.kpi-linea-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.kpi-linea-pct { font-weight: 600; color: var(--bs-body-color); }
+.kpi-linea-num { min-width: 3.1rem; }
+
+/* --- Quién no contestó, por día de citación --- */
+.dia-barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.dia-selector { min-width: 20rem; flex: 0 1 26rem; }
+.dia-selector .form-group,
+.dia-selector .shiny-input-container { margin-bottom: 0; }
+
+.tabla-dia .col-dep { white-space: normal; min-width: 12rem; }
+.tabla-dia .col-medio { display: block; }
+
+/* --- Rejilla de dependencias --- */
+.rejilla-dep {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 0.75rem;
+}
+
+.tarjeta-dep {
+  position: relative;
+  padding: 0.85rem 0.9rem 0.75rem;
+  border: 1px solid var(--bs-border-color);
+  border-left: 4px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  background: var(--bs-body-bg);
+  cursor: pointer;
+  transition: box-shadow .12s ease, transform .12s ease;
+}
+
+.tarjeta-dep:hover {
+  box-shadow: 0 .25rem .75rem rgba(var(--bs-body-color-rgb), .1);
+  transform: translateY(-1px);
+}
+
+.tarjeta-dep.activa {
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 2px rgba(var(--bs-primary-rgb), .25);
+}
+
+/* Estados. Contraste sobre blanco: 7,57:1 / 6,49:1 / 7,86:1.
+   El ámbar anterior (#E9C46A) daba 1,67:1, por debajo del mínimo de 3:1 que
+   WCAG pide a un elemento gráfico que porta significado.
+   El verde es el institucional (Pantone 357) y se reserva a "al día". */
+.tarjeta-dep.bajo  { border-left-color: #9B2C1E; }
+.tarjeta-dep.medio { border-left-color: #7D5700; }
+.tarjeta-dep.bien  { border-left-color: #005F2C; }
+.tarjeta-dep.nulo  { border-left-color: var(--bs-border-color); }
+
+/* Etiqueta de estado: el mismo dato que el borde de color, pero en palabras.
+   Sobrevive al daltonismo, al monocromo y a una captura impresa. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.3;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid currentColor;
+  border-radius: 1rem;
+  white-space: nowrap;
+}
+
+.chip.bajo    { color: #9B2C1E; }
+.chip.medio   { color: #7D5700; }
+.chip.bien    { color: #005F2C; }
+.chip.nulo    { color: var(--bs-secondary-color); }
+
+/* El rechazo y la ausencia no son ninguno de los tres estados del semaforo: no
+   son logro, no estan a medias y no son algo que falte. Grises (10,4:1 y 5,9:1
+   sobre blanco), que es como se lee un caso cerrado sin encuesta. Se distinguen
+   entre si por el signo y la palabra, no por el tono. */
+.chip.rechazo { color: #4A4A4A; }
+.chip.ausente { color: #6B6B6B; }
+
+.tarjeta-titulo {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  line-height: 1.3;
+  padding-right: 3.25rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.6em;
+}
+
+.tarjeta-sede {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--bs-secondary-color);
+  margin-bottom: .5rem;
+}
+
+/* La sede cede el espacio: si no cabe se recorta ella, nunca la etiqueta. */
+.tarjeta-sede .sede-nombre {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tarjeta-barra {
+  height: 6px;
+  margin-bottom: .6rem;
+}
+
+.tarjeta-cifras {
+  display: flex;
+  justify-content: space-between;
+  text-align: center;
+}
+
+.tarjeta-cifras .cifra {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.tarjeta-cifras .rotulo {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--bs-secondary-color);
+}
+
+.tarjeta-avance {
+  position: absolute;
+  top: .7rem;
+  right: .9rem;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--bs-primary);
+}
+
+/* --- Semaforo del avance ---------------------------------------------------
+   Otra lectura del listado: un mosaico por dependencia, del color de su estado.
+   Los tres colores son los mismos de las tarjetas y del chip de la tabla, y
+   estan verificados sobre blanco (7,57:1 rojo, 6,49:1 ambar, 7,86:1 verde), asi
+   que el texto blanco encima del mosaico tiene ese mismo contraste. El color
+   nunca va solo: cada pieza lleva tambien el simbolo y la palabra del estado. */
+
+.barra-listado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+/* --- faroles: el recuento por estado --- */
+.faroles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Los tres faroles van rellenos del color puro de su extremo de la rampa; el
+   color del texto lo calcula texto_sobre() en R, no el CSS. */
+.farol {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1 1 13rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 0.5rem;
+}
+
+.farol-luz { font-size: 1.4rem; line-height: 1; }
+
+.farol-nombre {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  opacity: .92;
+}
+
+.farol-cifra {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.farol-pie {
+  font-size: 0.8125rem;
+  opacity: .92;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Escala del degradado: dice que significa el color cuando no hay tres cajones
+   sino una rampa. El gradiente lo escribe R muestreando color_avance(). */
+.semaforo-escala {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.escala-barra {
+  flex: 1 1 auto;
+  height: 8px;
+  border-radius: 4px;
+}
+
+/* --- mosaico: una pieza por dependencia --- */
+.mosaico {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+/* El fondo y el color del texto los pone R: son continuos, no se pueden
+   enumerar en una hoja de estilos. */
+.mosaico-dep {
+  padding: 0.5rem 0.65rem 0.6rem;
+  border-radius: 0.45rem;
+  cursor: pointer;
+  transition: box-shadow .12s ease, transform .12s ease;
+}
+
+.mosaico-dep:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 .25rem .75rem rgba(var(--bs-body-color-rgb), .2);
+}
+
+/* El recuadro de la seleccion va en el color del texto y no en el del tema: el
+   verde institucional desapareceria encima de un mosaico verde. */
+.mosaico-dep.activa,
+.mosaico-dep:focus-visible {
+  outline: 3px solid var(--bs-body-color);
+  outline-offset: 2px;
+}
+
+.mos-estado {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  opacity: .92;
+}
+
+/* Dos lineas para el nombre: recortar a una deja "Facultad de Ciencias..." en
+   media docena de piezas, todas iguales. */
+.mos-nombre {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0.15rem 0 0.1rem;
+  min-height: 2.5em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mos-pct {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.mos-pie {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  opacity: .92;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Resumen de lo que se esta viendo --- */
+.resumen-listado {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: baseline;
+  margin-bottom: 0.6rem;
+  font-size: 0.875rem;
+  color: var(--bs-secondary-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.resumen-listado .sep { opacity: .55; }
+
+/* --- Tabla de dependencias ------------------------------------------------
+   Muchas filas: los numeros se alinean en columna y se comparan mirando, no
+   leyendo. Por debajo de UMBRAL_TARJETAS el modulo sirve la rejilla. */
+
+.tabla-dep-caja {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  overflow: auto;
+  max-height: 32rem;
+}
+
+.tabla-dep {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.tabla-dep thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bs-body-bg);
+  border-bottom: 1.5px solid var(--bs-secondary-color);
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tabla-dep thead th button {
+  all: unset;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--bs-secondary-color);
+}
+
+.tabla-dep thead th button:hover { color: var(--bs-primary); }
+
+.tabla-dep thead th button:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.tabla-dep tbody td {
+  padding: 0.3rem 0.7rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  vertical-align: middle;
+}
+
+.tabla-dep tbody tr { cursor: pointer; }
+.tabla-dep tbody tr:hover td { background: var(--bs-tertiary-bg); }
+
+.tabla-dep tbody tr.activa td {
+  background: rgba(var(--bs-primary-rgb), .08);
+  box-shadow: inset 0 1px 0 var(--bs-primary), inset 0 -1px 0 var(--bs-primary);
+}
+
+.tabla-dep tbody tr:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: -2px;
+}
+
+.tabla-dep .der { text-align: right; }
+.tabla-dep .col-dep  { font-weight: 550; }
+.tabla-dep .col-sede { color: var(--bs-secondary-color); white-space: nowrap; }
+.tabla-dep .col-enc  { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.tabla-dep tfoot td {
+  position: sticky;
+  bottom: 0;
+  background: var(--bs-tertiary-bg);
+  border-top: 1.5px solid var(--bs-secondary-color);
+  padding: 0.45rem 0.7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Barra de avance dentro de la celda */
+.col-avance {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 10rem;
+}
+
+.col-avance .pista {
+  flex: 1;
+  min-width: 4rem;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bs-secondary-bg);
+  overflow: hidden;
+}
+
+.col-avance .relleno { height: 100%; background: var(--bs-primary); }
+.col-avance .pista.bajo  .relleno { background: #9B2C1E; }
+.col-avance .pista.medio .relleno { background: #7D5700; }
+.col-avance .pista.bien  .relleno { background: #005F2C; }
+
+.col-avance .valor {
+  width: 3.4rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pendientes: la barra es el esfuerzo que queda, en personas */
+.col-pend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
+.col-pend .esfuerzo {
+  display: block;
+  height: 10px;
+  border-radius: 2px;
+  background: #9B2C1E;
+  opacity: .72;
+}
+
+.col-pend .valor {
+  min-width: 2.2rem;
+  text-align: right;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip.alta  { color: #9B2C1E; }
+.chip.media { color: #7D5700; }
+.chip.baja  { color: #005F2C; }
+.chip.alta, .chip.media, .chip.baja { padding: 0.02rem 0.3rem; }
+
+.tabla-detalle { font-size: 0.875rem; }
+.tabla-detalle th { font-weight: 600; color: var(--bs-secondary-color); }
+
+/* --- Pestaña de personas ---------------------------------------------------
+   Una fila por persona del marco. El desplegable y la descarga comparten una
+   sola barra: la pregunta ("¿quiénes faltan?") y la acción que se sigue de ella
+   ("me llevo la lista") quedan a un palmo. */
+
+.personas-barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.personas-selector { min-width: 15rem; }
+
+/* Sin el margen inferior de Bootstrap el desplegable se alinea con el botón. */
+.personas-selector .form-group,
+.personas-selector .shiny-input-container { margin-bottom: 0; }
+
+.tabla-per tbody tr { cursor: default; }
+.tabla-per tbody tr:hover td { background: var(--bs-tertiary-bg); }
+
+.tabla-per .col-id {
+  font-family: var(--bs-font-monospace);
+  white-space: nowrap;
+}
+
+/* Con el marco real la primera columna lleva dos cosas: el nombre, que es como
+   se reconoce a la persona, y debajo el documento, que es con lo que se cruza
+   con nómina. El nombre no va en monoespaciada: es texto, no un código. */
+.tabla-per .col-nombre {
+  display: block;
+  font-family: var(--bs-body-font-family);
+  font-weight: 550;
+  white-space: normal;
+}
+
+.tabla-per .col-tenue { color: var(--bs-secondary-color); }
+.tabla-per .col-fecha { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tabla-per .col-num   { font-variant-numeric: tabular-nums; }
+
+/* Filo de color a la izquierda: repite la situación que ya dice la etiqueta.
+   Con 244 filas el ojo encuentra los bloques antes de leer ninguna palabra, y
+   quien no distingue los colores sigue teniendo la etiqueta. Mismos tres
+   colores verificados de las tarjetas. */
+.tabla-per tbody td:first-child { border-left: 3px solid transparent; }
+.tabla-per tbody tr.efectiva   td:first-child { border-left-color: #005F2C; }
+.tabla-per tbody tr.falta      td:first-child { border-left-color: #9B2C1E; }
+.tabla-per tbody tr.rechazo    td:first-child { border-left-color: #4A4A4A; }
+.tabla-per tbody tr.ausente    td:first-child { border-left-color: #6B6B6B; }
+
+/* Grupos de aplicacion: los propios llevan el filo verde, que es lo que la
+   persona busca primero en la lista. La columna de aplicador dice "Usted" en
+   palabras, asi que el color no es la unica senal. */
+.tabla-per tbody tr.mio td:first-child { border-left-color: var(--bs-primary); }
+.tabla-grupos .col-accion .btn + .btn { margin-left: 0.35rem; }
+
+/* --- Calendario de grupos ---
+   Una columna por día, que se acomodan solas al ancho: en el teléfono quedan
+   una debajo de otra. Cada grupo lleva el filo verde de lo asignado; el que ya
+   empezó lo lleva gris, y el texto no se aclara para no perder contraste. */
+.cal-barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.cal-selector { min-width: 15rem; }
+.cal-selector .form-group,
+.cal-selector .shiny-input-container { margin-bottom: 0; }
+
+.cal-nav { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+
+.cal-titulo {
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+}
+
+.cal-resumen {
+  font-weight: 400;
+  color: var(--bs-secondary-color);
+  margin-left: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-semana {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.5rem;
+}
+
+.cal-dia {
+  min-width: 0;            /* sin esto el link largo ensancha la columna */
+  min-height: 6rem;
+  padding: 0.5rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  background: var(--bs-body-bg);
+}
+
+.cal-dia.hoy {
+  border-color: var(--bs-primary);
+  box-shadow: inset 0 0 0 1px var(--bs-primary);
+}
+
+.cal-dia-titulo {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--bs-secondary-color);
+  margin-bottom: 0.4rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-dia-nombre { font-weight: 600; color: var(--bs-body-color); }
+
+.cal-grupo {
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.4rem;
+  border-left: 3px solid var(--bs-primary);
+  border-radius: 0.35rem;
+  background: var(--bs-tertiary-bg);
+  font-size: 0.8125rem;
+}
+
+.cal-grupo.empezo { border-left-color: var(--bs-secondary-color); }
+
+.cal-hora { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.cal-link a {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-psicologo,
+.cal-personas { font-size: 0.75rem; color: var(--bs-secondary-color); }
+
+.cal-vacio { font-size: 0.8125rem; color: var(--bs-secondary-color); }
+
+.cal-sesion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+
+.cal-sesion .chip { font-size: 0.75rem; }
+
+/* Por qué todavía no hay botón de registro (antes de empezar, plazo vencido). */
+.obs-pista {
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+  white-space: normal;
+}
+.cal-sesion .btn  { padding: 0 0.4rem; font-size: 0.75rem; }
+
+/* --- Anotaciones de la sesión ---
+   Una fila por persona: el nombre a la izquierda y el campo de anotación
+   ocupando el resto. Sin quitar el margen inferior de Bootstrap cada fila
+   ocuparía el doble de alto. */
+.tabla-obs { max-height: 26rem; }
+.tabla-obs .form-group,
+.tabla-obs .shiny-input-container { margin-bottom: 0; }
+.tabla-obs .col-obs { width: 65%; }
+
+.tabla-obs .col-persona { font-weight: 550; }
+.tabla-obs .col-persona .col-id {
+  display: block;
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+}
+
+.anot-selector { max-width: 40rem; }
+.anot-selector .form-group,
+.anot-selector .shiny-input-container { margin-bottom: 0; }
+
+/* La anotación leída conserva los saltos de línea con que se escribió. */
+.obs-lectura { white-space: pre-line; }
+
+/* --- Usuarios --- */
+.tabla-usuarios .col-accion .btn + .btn { margin-left: 0.35rem; }
+.tabla-usuarios .chip + .chip { margin-left: 0.35rem; }
+
+/* La clave temporal se dicta o se copia: grande, monoespaciada y seleccionable
+   de un clic. */
+.clave-temporal {
+  font-family: var(--bs-font-monospace);
+  font-size: 1.5rem;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: 0.5rem 0.75rem;
+  margin: 0.75rem 0;
+  border: 1px dashed var(--bs-border-color);
+  border-radius: 0.5rem;
+  user-select: all;
+}
+
+/* --- Gestion de contactos ---------------------------------------------------
+   Casillas, boton por fila y barra de accion en lote de la pestana de personas,
+   mas la ventana de registro y el historial. */
+
+.barra-contacto {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.1rem 0 0.6rem;
+}
+
+/* La columna de casillas no compite por ancho: lo suyo es cabar justo. */
+.tabla-per .col-sel {
+  width: 2.4rem;
+  text-align: center;
+}
+
+.tabla-per .col-sel input {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+  accent-color: var(--bs-primary);
+}
+
+.tabla-per .col-accion {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.tabla-per .col-accion .btn {
+  padding: 0.1rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+/* El medio va debajo de la fecha y en gris: acompana al dato, no es otra
+   columna. */
+.tabla-per .col-medio {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+}
+
+/* --- ventana de registro --- */
+.form-contacto .form-group,
+.form-contacto .shiny-input-container { margin-bottom: 0.75rem; }
+
+.form-contacto .form-check { margin-bottom: 0; }
+
+/* El historial dentro de la ventana no necesita cabecera pegajosa ni la altura
+   de la tabla grande: es una lista corta que se lee de un vistazo. */
+.tabla-historial { max-height: 14rem; }
+
+.tabla-historial .col-obs {
+  white-space: normal;
+  min-width: 10rem;
+}
+
+.tabla-historial .chip {
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+}
+
+/* --- Grafico de avance acumulado -------------------------------------------
+   SVG dibujado por grafico_acumulado(). Todo el color sale de las variables de
+   Bootstrap, asi que el grafico sigue al tema de app.R sin repetir ni un hex:
+   --bs-primary es el verde institucional, que aqui significa lo mismo que en
+   estado_avance() y en las tarjetas: lo que ya se logro. */
+
+.grafico-acum {
+  position: relative;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  background: var(--bs-body-bg);
+  padding: 0.75rem 0.9rem 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.grafico-acum:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
+}
+
+.grafico-cab {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.grafico-titulo {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* La pista de uso se retira en cuanto el grafico esta en uso: ya cumplio. */
+.grafico-pista {
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+}
+.grafico-acum.activo .grafico-pista { visibility: hidden; }
+
+.grafico-vacio {
+  font-size: 0.875rem;
+  color: var(--bs-secondary-color);
+  padding: 1.25rem 0;
+  text-align: center;
+}
+
+/* height:auto conserva la proporcion del viewBox, que es lo que deja mapear el
+   puntero con una sola regla de tres en grafico.js. */
+.graf-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  touch-action: pan-y;
+}
+
+/* Los trazos no engordan al escalar el SVG. */
+.graf-svg line, .graf-svg path, .graf-svg circle {
+  vector-effect: non-scaling-stroke;
+}
+
+.graf-rejilla {
+  stroke: var(--bs-border-color);
+  stroke-width: 1;
+}
+
+.graf-eje-y, .graf-eje-x {
+  fill: var(--bs-secondary-color);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* La meta es una anotacion, no un dato: punteada para que no se lea como una
+   segunda serie, y en gris para no competir con la curva. */
+.graf-meta {
+  stroke: var(--bs-secondary-color);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  opacity: .75;
+}
+
+.graf-meta-rotulo {
+  fill: var(--bs-secondary-color);
+  font-size: 10px;
+}
+
+/* Dos series del mismo color: la cobertura (todo lo que llego) y, dentro de
+   ella, las encuestas efectivas. No son dos cosas distintas sino una parte de la
+   otra, asi que comparten el verde y se separan por peso: el area de efectivas
+   va mas cargada y su linea es mas fina y punteada. La franja clara que asoma
+   por encima es lo recibido a medias. */
+.graf-area {
+  fill: var(--bs-primary);
+  opacity: .10;
+}
+
+.graf-area.comp { opacity: .22; }
+
+.graf-linea {
+  fill: none;
+  stroke: var(--bs-primary);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.graf-linea.comp {
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+  opacity: .9;
+}
+
+.graf-llave.cobertura   { background: var(--bs-primary); }
+.graf-llave.efectividad {
+  align-self: center;
+  height: 0;
+  border-radius: 0;
+  background: transparent;
+  border-top: 2px dashed var(--bs-primary);
+  width: 1.1rem;
+}
+
+/* Anillo del color del fondo: el punto se sigue viendo aunque caiga encima de
+   la linea de meta o del borde del area. */
+.graf-punto-fin, .graf-punto-cursor {
+  fill: var(--bs-primary);
+  stroke: var(--bs-body-bg);
+  stroke-width: 2;
+}
+
+/* El punto de la serie de efectivas: hueco, para distinguirse del de cobertura
+   cuando las dos curvas casi se tocan. */
+.graf-punto-cursor.comp {
+  fill: var(--bs-body-bg);
+  stroke: var(--bs-primary);
+}
+
+/* Citados: la agenda, no la respuesta. Va en el ambar oscuro del semaforo --el
+   de "En curso" en chips y tarjetas (#7D5700, 6,49:1 sobre blanco)--, porque
+   un citado es justamente eso: algo en curso que todavia no llega. Linea sola,
+   sin area, para no tapar las dos curvas de abajo; la distancia hasta la
+   cobertura es lo que la leyenda cuenta como "sin responder". */
+.graf-linea.cit {
+  stroke: #7D5700;
+  stroke-width: 2;
+}
+
+/* Llave en trazo y no en cuadro: en el grafico es una linea sin area. */
+.graf-llave.citados {
+  align-self: center;
+  height: 0;
+  border-radius: 0;
+  background: transparent;
+  border-top: 2px solid #7D5700;
+  width: 1.1rem;
+}
+
+.graf-punto-cursor.cit,
+.graf-punto-fin.cit { fill: #7D5700; }
+
+.graf-rotulo-fin {
+  fill: var(--bs-body-color);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.graf-cursor {
+  opacity: 0;
+  transition: opacity .08s linear;
+}
+.grafico-acum.activo .graf-cursor { opacity: 1; }
+
+.graf-guia {
+  stroke: var(--bs-secondary-color);
+  stroke-width: 1;
+  opacity: .55;
+}
+
+/* --- Tooltip --- */
+
+.grafico-tip {
+  position: absolute;
+  z-index: 5;
+  transform: translateX(-50%);
+  pointer-events: none;
+  min-width: 8.5rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.375rem;
+  background: var(--bs-body-bg);
+  box-shadow: 0 .25rem .75rem rgba(var(--bs-body-color-rgb), .15);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.grafico-tip[hidden] { display: none; }
+
+.tip-fila {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  justify-content: space-between;
+  white-space: nowrap;
+}
+
+/* El numero es lo que se vino a buscar; el rotulo solo lo nombra. */
+.tip-valor {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tip-rotulo {
+  color: var(--bs-secondary-color);
+  font-size: 0.75rem;
+}
+
+.tip-fecha {
+  margin-bottom: 0.2rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid var(--bs-border-color);
+}
+.tip-fecha .tip-valor {
+  font-weight: 500;
+  color: var(--bs-secondary-color);
+  font-size: 0.75rem;
+}
+
+/* --- Minipestanas ----------------------------------------------------------
+   Dos vistas de lo mismo en el mismo sitio: la curva diaria o las barras
+   semanales en la tarjeta del grafico, el listado o el semaforo mas abajo. El
+   selector es un grupo de radios de Shiny vestido de control segmentado: el estado, el
+   foco y el recorrido con flechas ya vienen resueltos, y el lector de pantalla
+   lo sigue anunciando como lo que es. */
+
+/* La cabecera tiene ahora dos lados: titulo y leyenda a la izquierda, corte y
+   minipestanas a la derecha. */
+.grafico-cab-lado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+}
+
+.selector-vista { margin: 0; }
+.selector-vista .control-label { display: none; }
+
+.selector-vista .shiny-options-group {
+  display: inline-flex;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+
+/* Shiny emite dos marcados distintos para el mismo radioButtons segun el tema
+   que encuentre al dibujarlo: label.radio-inline con el input y un span dentro,
+   o .form-check con el input y el label como hermanos. Se visten los dos, que
+   cuesta menos que apostar a cual de ellos llega --y el grafico se dibuja desde
+   renderUI(), donde el tema no siempre esta a la vista. */
+.selector-vista .radio-inline,
+.selector-vista .form-check {
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+}
+
+/* El radio sigue ahi --y sigue recibiendo el foco y las flechas-- pero no se
+   pinta: lo que se ve es su etiqueta. */
+.selector-vista .radio-inline > input,
+.selector-vista .form-check-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.selector-vista .radio-inline > span,
+.selector-vista .form-check-label {
+  display: block;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--bs-secondary-color);
+  cursor: pointer;
+}
+
+.selector-vista .radio-inline + .radio-inline > span,
+.selector-vista .form-check + .form-check .form-check-label {
+  border-left: 1px solid var(--bs-border-color);
+}
+
+.selector-vista .radio-inline > input:checked + span,
+.selector-vista .form-check-input:checked + .form-check-label {
+  background: var(--bs-primary);
+  color: #fff;
+}
+
+/* Hacia adentro: el contorno por fuera se comeria el borde del grupo. */
+.selector-vista .radio-inline > input:focus-visible + span,
+.selector-vista .form-check-input:focus-visible + .form-check-label {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: -2px;
+}
+
+/* --- Barras por semana ------------------------------------------------------
+   Dibujadas por grafico_semanas(). Cada barra es una semana de campo, apilada:
+   el tramo tenue es el acumulado anterior y el solido lo que se sumo esa
+   semana. Es el mismo verde en dos intensidades y no dos colores distintos,
+   porque son la misma cosa --personas encuestadas-- contada en dos momentos.
+   Los tres numeros (anterior, nuevas y total) se leen sobre la barra. */
+
+/* La regla de arriba cubre line/path/circle; las barras tambien necesitan que
+   su contorno no engorde al escalar el SVG. */
+.graf-svg rect { vector-effect: non-scaling-stroke; }
+
+.graf-barra-previo { fill: var(--bs-primary); fill-opacity: .28; }
+.graf-barra-nueva  { fill: var(--bs-primary); }
+
+/* Numeros dentro de la barra. Sobre el verde pleno van en blanco (8,0:1) y
+   sobre el tramo tenue en el color del texto (14,5:1): los dos por encima del
+   4,5:1 que pide la WCAG para texto pequeno. */
+.graf-dentro {
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.graf-dentro.nueva  { fill: #fff; }
+.graf-dentro.previo { fill: var(--bs-body-color); }
+
+/* Total acumulado, encima de la barra: es la cifra que resume la semana. Del
+   mismo cuerpo que las de dentro --con dos renglones encima de cada barra, un
+   punto mas grande cargaba de tinta la parte alta del grafico-- y se distingue
+   por el peso, que es lo que ya la separaba del porcentaje de arriba. */
+.graf-rotulo-total {
+  fill: var(--bs-body-color);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* El avance sobre la meta, encima del total. En gris y mas chico porque es una
+   LECTURA del numero de abajo, no otro dato: el orden de arriba a abajo --que
+   parte de la meta, cuantas personas, la barra-- deja el dato observado pegado
+   a lo que lo dibuja. No va en el verde del dato para que no se confunda con
+   las nuevas de la semana, que tambien salen encima de la barra cuando su
+   segmento no da para meterlas dentro. */
+.graf-rotulo-pct {
+  fill: var(--bs-secondary-color);
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Las nuevas cuando su segmento no da para meter el numero dentro --y siempre
+   que la semana no produjo nada-- salen justo encima de la barra, en el verde
+   del dato para que no se confundan con el total, que va en negro encima. */
+.graf-fuera-nuevas {
+  fill: var(--bs-primary);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* La semana en curso esta cortada al ultimo envio recibido: marco punteado
+   alrededor de toda la barra. La senal no se queda en la forma --lleva ademas
+   asterisco en el eje y la nota al pie-- por lo mismo que los chips de estado. */
+.graf-marco-curso {
+  fill: none;
+  stroke: var(--bs-primary);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  opacity: .85;
+}
+.graf-barra.en-curso .graf-barra-nueva { fill-opacity: .6; }
+
+.graf-eje-x.en-curso { fill: var(--bs-primary); font-weight: 600; }
+
+/* Columna de meta: gris y punteada, como la linea con la que hace juego. No se
+   pinta de verde porque no es una semana ni un dato observado, es la referencia
+   contra la que se miran las demas. */
+.graf-barra-meta {
+  fill: var(--bs-secondary-color);
+  fill-opacity: .08;
+  stroke: var(--bs-secondary-color);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  opacity: .85;
+}
+
+/* Separador entre la ultima semana y la meta. */
+.graf-sep { stroke: var(--bs-border-color); stroke-width: 1; }
+
+.graf-rotulo-total.meta { fill: var(--bs-secondary-color); font-weight: 600; }
+.graf-eje-x.meta { fill: var(--bs-secondary-color); font-weight: 600; }
+
+.graf-leyenda {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+}
+
+.graf-llave {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+  background: var(--bs-primary);
+}
+
+.graf-llave.previo { opacity: .3; }
+
+/* La meta ya no es una barra sino una linea punteada que cruza el area, y su
+   llave tiene que parecerse a lo que hay en el grafico. */
+.graf-llave.meta {
+  align-self: center;
+  width: 1.1rem;
+  height: 0;
+  border-radius: 0;
+  background: transparent;
+  border-top: 2px dashed var(--bs-secondary-color);
+}
+
+.graf-llave-txt { margin-right: 0.4rem; }
+
+/* Clave de las semanas: que dias cubre cada S del eje. Se lee una vez y se
+   deja de mirar, asi que va debajo del grafico y en cuerpo pequeno, no en el
+   eje. Envuelve sola cuando la campana se alarga. */
+.graf-clave-semanas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--bs-secondary-color);
+}
+
+.clave-sem { white-space: nowrap; }
+
+.clave-nom {
+  font-weight: 600;
+  color: var(--bs-body-color);
+  margin-right: 0.25rem;
+}
+
+/* La semana en curso, la unica que se sigue moviendo, en el verde del dato. */
+.clave-sem.en-curso .clave-nom { color: var(--bs-primary); }
+
+.grafico-nota {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+}
+
+/* --- Barra de navegación ---------------------------------------------------
+   La pestaña activa ya es la más clara de la fila (blanco puro frente al 75%
+   de las demás, ver bs_add_variables en app.R), pero esa diferencia es solo de
+   color. El subrayado la marca además por forma: sobrevive al daltonismo y a
+   una captura en blanco y negro. currentColor la ata al color del propio
+   enlace, así no se repite ningún hex aquí. */
+.navbar .nav-link.active {
+  font-weight: 600;
+  box-shadow: inset 0 -3px 0 currentColor;
+}
+
+/* ===========================================================================
+   Módulo 3: resultados por segmento
+   ===========================================================================
+   Los cinco niveles de las barras de distribución usan el MISMO semáforo del
+   avance --rojo, amarillo y verde de SEMAFORO_* en R/helpers.R, los del
+   mosaico--, para que la app tenga una sola señal de color:
+
+     sin riesgo  #005F2C  verde, el farol "Al día" (SEMAFORO_VERDE)
+     bajo        #3F9E4D  verde claro (el paso 90 de SEMAFORO_RAMPA)
+     medio       #F2C200  amarillo, el farol "En curso" (SEMAFORO_AMARILLO)
+     alto        #D2740F  naranja, color_avance(52.5): el punto medio entre
+                          rojo y amarillo, el de los mosaicos críticos
+     muy alto    #B3261E  rojo, el farol "Crítico" (SEMAFORO_ROJO)
+
+   Son colores de superficie rellena, no de texto: el amarillo da 1,7:1 contra
+   blanco. Dentro de cada tramo la tinta la eligió texto_sobre(): blanca sobre
+   el verde y el rojo, oscura sobre el verde claro, el amarillo y el naranja
+   (7,86 / 5,09 / 10,25 / 5,12 / 6,54).
+
+   El mapa usa cuatro bandas y no cinco: en una cuadrícula cualquier celda
+   puede quedar junto a cualquier otra, y con cinco pasos el verde claro contra
+   el ámbar caía a 14,7.
+
+   Los dos colores de la comparación (por encima / por debajo) nunca viajan
+   solos: cada uno lleva su símbolo (▲ ▼) y su cifra en texto. */
+
+/* La paleta va en :root y no en la lista de contenedores donde se usa, que es
+   como estaba. El motivo es que fallaba en silencio: una regla escrita fuera de
+   esa lista --la leyenda de comparación y las 56 celdas de diferencia de la
+   tabla analítica lo estaban-- resuelve var(--cmp-arriba) a nada, la propiedad
+   entera se anula y el color simplemente no aparece. Sin error en consola y sin
+   nada que mirar: las muestras de la leyenda salían transparentes y la columna
+   de pp de la tabla, en negro. Con :root, añadir una sección nueva no puede
+   volver a romperlo. Ningún otro módulo usa estos nombres. */
+:root {
+  --niv1: #005F2C; --niv2: #3F9E4D; --niv3: #F2C200;
+  --niv4: #D2740F; --niv5: #B3261E;
+  --banda1: #3e9463; --banda2: #e5b70a; --banda3: #c46614; --banda4: #92244e;
+  --banda-mejor: #3e9463; --banda-cero: #eceae4;
+  --cmp-arriba: #92244e; --cmp-abajo: #3e9463;
+  /* El gris --cmp-nula es solo para "Sin dato": la banda gris de "similar" se
+     quitó de res_senal(), que ahora tiene dos estados y no tres. */
+  --cmp-nula: #8a938c;
+  /* La referencia tiene color PROPIO y no se mueve nunca: no es uno de los dos
+     estados, es contra lo que se miden. Antes usaba el gris secundario, casi el
+     mismo que el de "sin dato", y con diferencias pequeñas los dos puntos de la
+     pista se confundían. */
+  --cmp-ref: #2f3633;
+}
+
+/* --- cabecera ------------------------------------------------------------ */
+
+.res-cabecera { margin: 0.25rem 0 1.1rem; }
+
+.res-eyebrow {
+  font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase;
+  font-weight: 700; color: var(--bs-primary); margin-bottom: 0.2rem;
+}
+
+.res-seg-titulo {
+  margin: 0 0 0.2rem; line-height: 1.22; text-wrap: balance;
+}
+
+.res-seg-sub {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: baseline;
+  font-size: 0.875rem; color: var(--bs-secondary-color);
+  font-variant-numeric: tabular-nums;
+}
+.res-seg-sub .sep { opacity: 0.5; }
+.res-seg-sub .res-seg-n { font-weight: 600; color: var(--bs-body-color); }
+.res-seg-sub .res-poblacion { font-size: 0.8125rem; opacity: 0.85; }
+
+.res-restablecer { font-size: 0.8125rem; display: inline-block; margin-top: 0.3rem; }
+
+/* --- panel de control: dos bloques, dos preguntas ------------------------ */
+
+.res-control {
+  display: grid;
+  grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr);
+  gap: 0.9rem; margin-bottom: 1.4rem;
+}
+@media (max-width: 860px) { .res-control { grid-template-columns: 1fr; } }
+
+.res-bloque {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem; padding: 0.8rem 1rem 0.9rem;
+  background: var(--bs-body-bg);
+}
+/* El filete superior separa los dos gestos sin gritar: filtrar es sobre la
+   población, desagregar es sobre la comparación. */
+.res-bloque-filtrar    { border-top: 3px solid var(--bs-primary); }
+.res-bloque-desagregar { border-top: 3px solid var(--bs-border-color);
+                         background: var(--bs-tertiary-bg); }
+
+.res-bloque-cab { margin-bottom: 0.6rem; }
+.res-bloque-eyebrow {
+  display: block; font-size: 0.7rem; letter-spacing: 0.1em;
+  text-transform: uppercase; font-weight: 700; color: var(--bs-primary);
+}
+.res-bloque-desagregar .res-bloque-eyebrow { color: var(--bs-secondary-color); }
+/* Pegado al selector que limpia, y separado del "Comparar con" de abajo. */
+.res-quitar-desag { margin: -0.4rem 0 0.8rem; }
+.res-bloque-preg {
+  display: block; font-size: 0.8125rem; color: var(--bs-secondary-color);
+}
+
+.res-bloque .shiny-input-container { margin-bottom: 0.5rem; width: 100% !important; }
+.res-bloque label { font-size: 0.8125rem; margin-bottom: 0.15rem; }
+.res-bloque .radio-inline { font-size: 0.8125rem; }
+
+/* --- fichas de filtro activo --------------------------------------------- */
+
+.res-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.6rem; }
+
+.res-chip {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font: inherit; font-size: 0.8125rem; line-height: 1.3;
+  padding: 0.2rem 0.5rem 0.2rem 0.6rem;
+  border: 1px solid var(--bs-primary);
+  border-radius: 1rem; cursor: pointer;
+  background: rgba(var(--bs-primary-rgb), 0.08);
+  color: var(--bs-body-color);
+  max-width: 100%;
+}
+.res-chip em {
+  font-style: normal; color: var(--bs-secondary-color); font-size: 0.72rem;
+}
+.res-chip em::after { content: ":"; }
+.res-chip:hover { background: rgba(var(--bs-primary-rgb), 0.16); }
+.res-chip .res-aspa { font-size: 1rem; line-height: 1; opacity: 0.65; }
+.res-chip:hover .res-aspa { opacity: 1; }
+
+.res-chip-limpiar {
+  background: transparent; border-color: var(--bs-border-color);
+  color: var(--bs-secondary-color);
+}
+
+.res-desplegable > summary {
+  cursor: pointer; font-size: 0.8125rem; color: var(--bs-secondary-color);
+  padding: 0.15rem 0; list-style-position: outside;
+}
+.res-desplegable > summary:hover { color: var(--bs-primary); }
+.res-desplegable[open] > summary { margin-bottom: 0.5rem; }
+
+.res-filtros-rejilla > div {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+  gap: 0 0.7rem;
+}
+
+/* --- aviso de reserva ----------------------------------------------------- */
+
+.res-reserva-aviso {
+  border: 1px solid var(--bs-border-color);
+  border-left: 4px solid #92244e;
+  background: var(--bs-body-bg);
+  padding: 0.9rem 1.1rem; border-radius: 0.25rem; margin-bottom: 1.2rem;
+}
+.res-reserva-tit { font-weight: 700; margin-bottom: 0.3rem; }
+.res-reserva-aviso p { margin-bottom: 0.4rem; }
+
+/* --- tarjetas del resumen ------------------------------------------------- */
+
+.res-tarjetas {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr));
+  gap: 0.75rem; margin-bottom: 0.5rem;
+}
+
+.res-tarjeta {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem; padding: 0.8rem 0.95rem;
+  background: var(--bs-body-bg);
+}
+
+/* La forma que el segmento no tiene: se ve, pero no compite con las que traen
+   cifra. Borde punteado y todo en gris secundario. */
+.res-tarjeta-vacia {
+  border-style: dashed;
+  background: var(--bs-tertiary-bg);
+}
+.res-tarjeta-vacia .res-t-cifra { color: var(--bs-secondary-color); }
+
+.res-t-rotulo {
+  font-size: 0.78rem; color: var(--bs-secondary-color);
+  line-height: 1.25; margin-bottom: 0.35rem;
+}
+.res-t-cifra {
+  font-size: 1.75rem; font-weight: 600; line-height: 1;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.015em;
+}
+.res-t-pie {
+  font-size: 0.75rem; color: var(--bs-secondary-color); margin-top: 0.3rem;
+}
+.res-t-delta {
+  display: flex; align-items: baseline; gap: 0.3rem;
+  margin-top: 0.45rem; padding-top: 0.4rem;
+  border-top: 1px solid var(--bs-border-color);
+  font-size: 0.78rem; font-variant-numeric: tabular-nums;
+}
+.res-senal { font-size: 0.7rem; line-height: 1; }
+.res-t-delta.arriba  { color: var(--cmp-arriba); }
+.res-t-delta.abajo   { color: var(--cmp-abajo); }
+
+/* Explicación de una línea, pegada a lo que explica. */
+.res-micro {
+  font-size: 0.78rem; color: var(--bs-secondary-color);
+  margin: 0.5rem 0 1rem; max-width: 78ch; line-height: 1.45;
+}
+
+/* --- cabecera de sección con sus mandos ---------------------------------- */
+
+.res-seccion-cab {
+  display: flex; flex-wrap: wrap; gap: 1rem;
+  justify-content: space-between; align-items: flex-end;
+  margin: 2rem 0 0.4rem;
+  padding-top: 1rem; border-top: 1px solid var(--bs-border-color);
+}
+.res-seccion-cab h5 { margin-bottom: 0.15rem; }
+.res-seccion-mandos {
+  display: flex; flex-wrap: wrap; gap: 0.9rem; align-items: flex-end;
+}
+.res-seccion-mandos .shiny-input-container { margin-bottom: 0; }
+.res-interruptor .shiny-input-container { margin-bottom: 0; }
+.res-interruptor .radio-inline { font-size: 0.8125rem; }
+
+.res-sub {
+  margin: 1.4rem 0 0.3rem; font-size: 0.95rem; font-weight: 600;
+}
+
+/* --- leyendas ------------------------------------------------------------- */
+
+.res-leyenda {
+  display: flex; flex-wrap: wrap; gap: 0.9rem;
+  margin: 0.5rem 0 0.7rem; font-size: 0.8rem;
+  color: var(--bs-secondary-color);
+}
+.res-leyenda-it { display: inline-flex; align-items: center; gap: 0.35rem; }
+.res-leyenda-nota { opacity: 0.8; font-style: italic; }
+/* Rótulo que encabeza los tres estados del punto lleno. */
+.res-leyenda-rot { font-weight: 600; color: var(--bs-body-color); margin-left: 0.3rem; }
+.res-leyenda .res-senal.arriba  { color: var(--cmp-arriba); }
+.res-leyenda .res-senal.abajo   { color: var(--cmp-abajo); }
+
+.res-muestra {
+  display: inline-block; flex-shrink: 0;
+  width: 13px; height: 13px; border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.09);
+}
+.res-muestra.niv1 { background: #005F2C; }
+.res-muestra.niv2 { background: #3F9E4D; }
+.res-muestra.niv3 { background: #F2C200; }
+.res-muestra.niv4 { background: #D2740F; }
+.res-muestra.niv5 { background: #B3261E; }
+.res-muestra.banda-b1    { background: #3e9463; }
+.res-muestra.banda-b2    { background: #e5b70a; }
+.res-muestra.banda-b3    { background: #c46614; }
+.res-muestra.banda-b4    { background: #92244e; }
+.res-muestra.banda-mejor { background: #3e9463; }
+.res-muestra.banda-cero  { background: #eceae4; }
+/* El punto del segmento: mismo color que le da res_senal() en la fila. Antes
+   la muestra estaba clavada en carmín y las filas verdes y grises quedaban sin
+   explicar en la leyenda. */
+.res-muestra.res-m-pt {
+  border-radius: 50%; background: var(--cmp-nula);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+.res-muestra.res-m-pt.arriba { background: var(--cmp-arriba); }
+.res-muestra.res-m-pt.abajo  { background: var(--cmp-abajo); }
+/* La muestra de la referencia es el MISMO aro hueco que va en la pista: si la
+   leyenda lo pintara de otro color o relleno, dejaría de explicar lo que se ve. */
+.res-muestra.res-m-univ  {
+  background: transparent; border-radius: 50%;
+  border: 2px solid var(--cmp-ref);
+}
+
+/* --- cuestionarios del ranking -------------------------------------------- */
+/* Un bloque es un CUESTIONARIO --intralaboral, extralaboral o estres-- y dentro
+   se elige la forma. La separacion entre ellos pesa visualmente porque es la
+   que impide restar una medida de un instrumento con la de otro: recuadro
+   propio, cabecera fija y sangria del contenido. Va en <details> para poder
+   plegar el que no interesa; el triangulo del navegador ya dice si esta
+   abierto, y no se le anade otro. */
+
+.res-bl {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.4rem;
+  margin-bottom: 0.9rem;
+  background: var(--bs-body-bg);
+}
+.res-bl-sum {
+  cursor: pointer; padding: 0.6rem 0.85rem;
+  border-radius: 0.4rem;
+  list-style-position: outside;
+}
+.res-bl[open] > .res-bl-sum {
+  border-bottom: 1px solid var(--bs-border-color);
+  border-radius: 0.4rem 0.4rem 0 0;
+  background: var(--bs-tertiary-bg);
+}
+.res-bl-sum:hover .res-bl-tit { color: var(--bs-primary); }
+
+.res-bl-tit {
+  display: inline-flex; align-items: baseline; gap: 0.55rem;
+  font-weight: 700; font-size: 0.95rem;
+}
+.res-bl-n {
+  font-weight: 400; font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--bs-secondary-color);
+}
+.res-bl-sub {
+  font-size: 0.78rem; color: var(--bs-secondary-color);
+  line-height: 1.35; margin-top: 0.1rem;
+}
+.res-bl-cuerpo { padding: 0.6rem 0.85rem 0.75rem; }
+.res-bl-cuerpo > .res-filas { padding: 0; }
+
+/* La forma que se esta mirando, al lado del titulo. En la vista total va en
+   gris --es el estado de reposo, todas las encuestas efectivas-- y cuando
+   hay una forma elegida se enciende: es una restriccion de la poblacion, y con
+   el bloque plegado esta pastilla es lo unico que lo dice. */
+.res-bl-vista {
+  font-size: 0.7rem; line-height: 1.6;
+  padding: 0 0.4rem; border-radius: 0.7rem;
+  border: 1px solid var(--bs-border-color);
+  color: var(--bs-secondary-color);
+  font-weight: 600; white-space: nowrap;
+}
+.res-bl-vista.forma {
+  border-color: var(--bs-primary);
+  color: var(--bs-primary);
+  background: rgba(var(--bs-primary-rgb), 0.07);
+}
+
+/* El selector de forma. Va DENTRO del desplegable y encima de las filas,
+   porque es lo primero que hay que decidir para leerlas: cambia la poblacion
+   del cuestionario y con ella su referencia. Tres botones pegados y no un
+   desplegable: son tres opciones fijas y se comparan de un vistazo. */
+.res-vista {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 0.35rem; margin-bottom: 0.7rem;
+}
+.res-vista-rot {
+  font-size: 0.75rem; color: var(--bs-secondary-color);
+  margin-right: 0.15rem;
+}
+.res-vista-op {
+  border: 1px solid var(--bs-border-color);
+  background: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  font-size: 0.78rem; line-height: 1.6;
+  padding: 0.1rem 0.6rem; border-radius: 1rem;
+  cursor: pointer;
+}
+.res-vista-op:hover { border-color: var(--bs-primary); color: var(--bs-primary); }
+/* La activa no se marca solo con el color: lleva ademas el peso, para que se
+   lea en gris y en una impresion. */
+.res-vista-op.activa {
+  background: var(--bs-primary); border-color: var(--bs-primary);
+  color: #fff; font-weight: 600;
+}
+.res-vista-op.activa:hover { color: #fff; }
+
+/* Un cuestionario sin nada en la vista elegida no se esconde: ademas de que
+   esconderlo haria creer que no existe, dejaria a quien eligio la forma B sin
+   manera de volver, porque el selector vive dentro. */
+.res-bl-vacio { background: var(--bs-tertiary-bg); }
+.res-bl-vacio .res-bl-tit { color: var(--bs-secondary-color); }
+.res-bl-nota {
+  padding: 0 0.85rem 0.75rem;
+  font-size: 0.82rem; color: var(--bs-secondary-color); max-width: 70ch;
+}
+
+/* --- filas del ranking ---------------------------------------------------- */
+
+.res-filas { display: flex; flex-direction: column; gap: 2px; }
+
+.res-fila {
+  display: grid;
+  grid-template-columns: minmax(130px, 21rem) 1fr 5rem 5.6rem;
+  align-items: center; gap: 0.8rem;
+  padding: 0.25rem 0.4rem; border-radius: 0.25rem;
+}
+
+.res-fila[data-dim] { cursor: pointer; }
+.res-fila[data-dim]:hover { background: var(--bs-tertiary-bg); }
+.res-fila[data-dim]:focus-visible {
+  outline: 2px solid var(--bs-primary); outline-offset: -2px;
+}
+
+.res-fila.res-total {
+  border-bottom: 1px solid var(--bs-border-color);
+  padding-bottom: 0.45rem; margin-bottom: 0.25rem;
+}
+.res-fila.res-total .res-nom { font-weight: 600; }
+
+/* Mismo tratamiento que los rotulos de fila del mapa de medidas por grupo
+   (.res-mapa th.res-rot-fila): alineados a la izquierda y con la jerarquia en
+   la sangria y el peso, no en una segunda linea. Son la misma lista de medidas
+   vista de dos maneras y tenian dos tipografias distintas.
+
+   Van a la izquierda y no a la derecha --como estaban-- porque una sangria
+   contra el borde derecho no se lee como jerarquia: el ojo necesita un margen
+   comun del que colgar los escalones. */
+.res-nom {
+  font-size: 0.85rem; line-height: 1.25; text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* Los mismos tres escalones del mapa, con los mismos valores: si algun dia se
+   mueven, se mueven en los dos sitios o las dos vistas dejan de parecerse. */
+.res-nom.res-rf-total     { font-weight: 700; }
+.res-nom.res-rf-dominio   { font-weight: 600; padding-left: 0.8rem; }
+.res-nom.res-rf-dimension { padding-left: 1.8rem; }
+
+.res-val {
+  text-align: right; font-weight: 600; font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.res-delta {
+  text-align: right; font-size: 0.8rem;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.res-delta.arriba  { color: var(--cmp-arriba); font-weight: 600; }
+.res-delta.abajo   { color: var(--cmp-abajo);  font-weight: 600; }
+.res-sin-comp { color: var(--bs-secondary-color); opacity: 0.7; }
+
+/* --- pista de comparación (dumbbell) ------------------------------------- */
+/* Escala fija de 0 a 100 % en todas las filas: si se ajustara al rango de cada
+   fila, dos medidas con la misma distancia se verían distintas y dos segmentos
+   no se podrían comparar mirando. */
+
+.res-pista {
+  position: relative; height: 22px;
+  background: var(--bs-tertiary-bg);
+  border-radius: 3px;
+}
+
+.res-guia {
+  position: absolute; top: 3px; bottom: 3px; width: 1px;
+  background: var(--bs-border-color);
+}
+
+.res-tramo {
+  position: absolute; top: 50%; height: 3px;
+  transform: translateY(-50%); border-radius: 2px;
+  background: var(--bs-secondary-color); opacity: 0.45;
+}
+.res-tramo.arriba { background: var(--cmp-arriba); opacity: 0.35; }
+.res-tramo.abajo  { background: var(--cmp-abajo);  opacity: 0.35; }
+
+.res-punto {
+  position: absolute; top: 50%; width: 11px; height: 11px;
+  margin-left: -5.5px; transform: translateY(-50%);
+  border-radius: 50%;
+}
+
+/* La universidad se dibuja SIEMPRE igual: aro sin relleno, su color propio, y
+   por encima de todo lo demás. Es la marca que no puede cambiar de aspecto
+   según la fila, porque es el punto de referencia contra el que se lee toda la
+   pantalla.
+   - `transparent`, no el color del fondo: cuando el segmento cae sobre la
+     referencia --que es cuando más falta hace distinguirlos-- el rojo o el
+     verde se ve DENTRO del aro en vez de quedar tapado por él.
+   - `z-index` por encima del punto del segmento: ese lleva un halo de 2 px que
+     antes le comía el aro cuando los dos quedaban a un par de píxeles. */
+.res-p-univ {
+  background: transparent;
+  border: 2px solid var(--cmp-ref);
+  z-index: 3;
+}
+.res-p-seg {
+  background: var(--cmp-nula); box-shadow: 0 0 0 2px var(--bs-body-bg);
+  z-index: 2;
+}
+.res-p-seg.arriba { background: var(--cmp-arriba); }
+.res-p-seg.abajo  { background: var(--cmp-abajo); }
+
+/* --- barra apilada -------------------------------------------------------- */
+/* El porcentaje se escribe dentro del tramo solo si pasa RES_MIN_ROTULO (7 %);
+   por debajo no cabe. `overflow:hidden` es el cinturón: si aun así no cupiera,
+   el rótulo se recorta dentro de su color en vez de invadir el vecino.
+   Tinta según texto_sobre(): blanca sobre verde y rojo; oscura sobre verde
+   claro, amarillo y naranja. Contraste medido para texto pequeño (mínimo
+   4,5:1): 7,86 / 5,09 / 10,25 / 5,12 / 6,54. */
+
+.res-barra { display: flex; height: 22px; gap: 2px; }
+
+.res-seg {
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; white-space: nowrap;
+  font-size: 0.68rem; line-height: 1;
+  font-variant-numeric: tabular-nums; color: #1B1B1B;
+}
+.res-seg:first-child { border-radius: 3px 0 0 3px; }
+.res-seg:last-child  { border-radius: 0 3px 3px 0; }
+.res-seg.niv1 { background: var(--niv1); color: #ffffff; }
+.res-seg.niv2 { background: var(--niv2); }
+.res-seg.niv3 { background: var(--niv3); }
+.res-seg.niv4 { background: var(--niv4); }
+.res-seg.niv5 { background: var(--niv5); color: #ffffff; }
+
+.res-reservado {
+  display: flex; align-items: center; height: 22px; padding: 0 0.7rem;
+  background: var(--bs-tertiary-bg); border-radius: 3px;
+  font-size: 0.78rem; color: var(--bs-secondary-color);
+}
+.res-fila-reservada .res-nom { color: var(--bs-secondary-color); }
+
+/* --- focos de atención ---------------------------------------------------- */
+
+.res-focos {
+  margin: 1.6rem 0 0.5rem; padding: 1rem 1.1rem;
+  border: 1px solid var(--bs-border-color);
+  border-left: 4px solid var(--bs-primary);
+  border-radius: 0 0.25rem 0.25rem 0;
+  background: var(--bs-tertiary-bg);
+}
+.res-focos-cab h5 { margin-bottom: 0.2rem; }
+.res-regla {
+  display: block; font-size: 0.75rem; color: var(--bs-secondary-color);
+  line-height: 1.4; max-width: 80ch; margin-bottom: 0.8rem;
+}
+.res-focos-vacio { font-size: 0.875rem; color: var(--bs-secondary-color); }
+
+.res-focos-lista { display: flex; flex-direction: column; gap: 0.55rem; }
+
+.res-foco {
+  display: grid; grid-template-columns: 1.6rem 1fr auto;
+  gap: 0.7rem; align-items: baseline;
+}
+.res-foco-num {
+  font-size: 1.05rem; font-weight: 700; color: var(--bs-primary);
+  font-variant-numeric: tabular-nums;
+}
+.res-foco-nom { font-weight: 600; line-height: 1.3; }
+.res-foco-det {
+  font-size: 0.78rem; color: var(--bs-secondary-color); line-height: 1.35;
+}
+.res-foco-delta {
+  font-size: 1.05rem; font-weight: 600; color: #92244e;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* --- mapa de calor -------------------------------------------------------- */
+
+.res-mapa-caja { max-height: 40rem; }
+
+.res-mapa {
+  border-collapse: separate; border-spacing: 2px;
+  font-size: 0.78rem; margin: 0;
+}
+
+.res-mapa thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bs-body-bg);
+  padding: 0.4rem 0.5rem 0.5rem;
+  font-size: 0.75rem; font-weight: 600; text-align: left;
+  vertical-align: bottom; min-width: 5rem; max-width: 9rem; line-height: 1.2;
+  border-bottom: 1.5px solid var(--bs-secondary-color);
+}
+.res-mapa thead th.res-esquina { min-width: 16rem; }
+.res-mapa thead th .res-n {
+  display: block; font-weight: 400; font-size: 0.7rem;
+  color: var(--bs-secondary-color);
+}
+
+.res-mapa th.res-rot-fila {
+  font-weight: 400; text-align: left; padding-right: 0.7rem;
+  max-width: 16rem; line-height: 1.25;
+}
+/* Las filas del mapa van en orden de estructura, así que la jerarquía se puede
+   dibujar con sangría: total → dominio → dimensión. El nivel viaja además en
+   texto oculto, porque un lector de pantalla no oye un margen izquierdo. */
+.res-mapa th.res-rf-total     { font-weight: 700; }
+.res-mapa th.res-rf-dominio   { font-weight: 600; padding-left: 0.8rem; }
+.res-mapa th.res-rf-dimension { padding-left: 1.8rem; }
+
+.res-cel {
+  text-align: center; height: 26px; min-width: 5rem;
+  border-radius: 2px; font-variant-numeric: tabular-nums;
+}
+.res-cel.banda-b1, .res-cel.banda-mejor { background: var(--banda1); color: #101410; }
+.res-cel.banda-b2 { background: var(--banda2); color: #101410; }
+.res-cel.banda-b3 { background: var(--banda3); color: #101410; }
+.res-cel.banda-b4 { background: var(--banda4); color: #ffffff; }
+.res-cel.banda-cero {
+  background: var(--banda-cero); color: var(--bs-secondary-color);
+}
+.res-cel.banda-nula {
+  background: var(--bs-tertiary-bg); color: var(--bs-secondary-color);
+  font-size: 0.7rem;
+}
+
+/* --- tabla analítica ------------------------------------------------------ */
+
+.res-tabla tbody tr { cursor: default; }
+.res-tabla-analitica { font-size: 0.82rem; }
+.res-tabla-analitica th[scope="row"] {
+  font-weight: 400; text-align: left; max-width: 22rem; line-height: 1.3;
+}
+.res-tabla-analitica .res-col-clave { font-weight: 600; }
+.res-tabla-analitica thead th.res-col-clave { font-weight: 700; }
+.res-delta-cel.arriba  { color: var(--cmp-arriba); font-weight: 600; }
+.res-delta-cel.abajo   { color: var(--cmp-abajo);  font-weight: 600; }
+
+.res-bajar { padding-bottom: 0.15rem; }
+
+/* --- detalle de una medida (modal) ---------------------------------------- */
+
+.res-det-cifras {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.7rem; margin-bottom: 1rem;
+}
+.res-det-caja {
+  border: 1px solid var(--bs-border-color); border-radius: 0.4rem;
+  padding: 0.7rem 0.85rem; background: var(--bs-tertiary-bg);
+}
+.res-det-caja.arriba { border-left: 3px solid var(--cmp-arriba); }
+.res-det-caja.abajo  { border-left: 3px solid var(--cmp-abajo); }
+.res-det-caja .res-t-cifra { font-size: 1.45rem; }
+.res-det-caja .res-t-rotulo { margin: 0.25rem 0 0; }
+
+.modal-body .res-tabla th[scope="row"] {
+  display: flex; align-items: center; gap: 0.4rem; font-weight: 400;
+}
+
+/* --- pantallas angostas --------------------------------------------------- */
+
+@media (max-width: 700px) {
+  .res-fila { grid-template-columns: 1fr auto; gap: 0.3rem 0.6rem; }
+  .res-nom { grid-column: 1 / -1; text-align: left; }
+  .res-fila .res-pista, .res-fila .res-barra { grid-column: 1; }
+  .res-fila .res-val { grid-column: 2; }
+  .res-fila .res-delta { grid-column: 2; text-align: right; }
+}
+
+/* Texto del desplegable de filtros: cuántos hay puestos. */
+.res-contador { font-variant-numeric: tabular-nums; }
+
+/* --- bloques plegables dentro de una tabla -------------------------------- */
+/* Mismo reparto que el ranking --un bloque por cuestionario-- pero sin
+   <details>, que dentro de <table> no es HTML válido. El pliegue es una clase
+   sobre el <tbody>; el botón de la cabecera la conmuta y lleva el estado en
+   aria-expanded, que es además de donde sale la flecha. Partir la tabla en
+   tres tablas habría descuadrado el ancho de las columnas, y con eso se
+   pierde poder seguir a un mismo grupo de arriba abajo. */
+
+.res-tb-cab > th {
+  padding: 0.9rem 0 0.25rem;
+  background: var(--bs-body-bg);
+  border-bottom: 1px solid var(--bs-border-color);
+}
+.res-tb:first-child > .res-tb-cab > th { padding-top: 0.2rem; }
+
+.res-tb-boton {
+  display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;
+  width: 100%; padding: 0.25rem 0.15rem;
+  background: none; border: 0; text-align: left;
+  color: inherit; cursor: pointer;
+}
+.res-tb-boton:hover .res-tb-tit { color: var(--bs-primary); }
+.res-tb-boton:focus-visible {
+  outline: 2px solid var(--bs-primary); outline-offset: 1px; border-radius: 3px;
+}
+
+/* La flecha es un botón redondo y del color primario, no un triángulo gris de
+   0,7 rem: con los cuestionarios del mapa plegados de entrada, desplegar es lo
+   primero que hay que hacer, y el triángulo pequeño pasaba por adorno. Gira en
+   vez de cambiar de carácter, así que ocupa siempre lo mismo. */
+.res-tb-boton { align-items: center; }
+.res-tb-flecha, .res-desag-flecha {
+  flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  width: 1.75rem; height: 1.75rem; border-radius: 50%;
+  border: 2px solid var(--bs-primary); color: var(--bs-primary);
+  background: var(--bs-body-bg);
+  font-size: 0.95rem; line-height: 1;
+  transition: transform .15s, background-color .15s, color .15s;
+}
+.res-tb-flecha::before, .res-desag-flecha::before { content: "\25b6"; margin-left: 0.12rem; }
+.res-tb-boton[aria-expanded="true"] .res-tb-flecha,
+.res-desag[open] > .res-desag-sum .res-desag-flecha { transform: rotate(90deg); }
+.res-tb-boton:hover .res-tb-flecha,
+.res-desag-sum:hover .res-desag-flecha {
+  background: var(--bs-primary); color: var(--bs-body-bg);
+}
+
+.res-tb-tit { font-size: 0.95rem; font-weight: 700; }
+.res-tb-sub, .res-tb-nota {
+  font-size: 0.74rem; font-weight: 400; color: var(--bs-secondary-color);
+}
+.res-tb-nota { font-style: italic; }
+
+/* --- la sección de desagregación, plegable --- */
+/* Misma caja que el resumen descriptivo, pero con la flecha grande: aquí
+   plegado es el estado de entrada y hay que ver a la primera que se abre. */
+.res-desag {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  margin: 0.4rem 0 1rem;
+  background: var(--bs-body-bg);
+}
+.res-desag-sum {
+  cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+}
+.res-desag-sum::-webkit-details-marker { display: none; }
+.res-desag-sum:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
+.res-desag-sum-tit { font-weight: 600; font-size: 1.05rem; }
+.res-desag-sum-sub { font-size: 0.8125rem; color: var(--bs-secondary-color); }
+.res-desag-cuerpo { padding: 0 0.9rem 0.9rem; }
+/* Datos detallados usa la misma caja, pegada al ranking que tiene encima. */
+.res-detalle { margin-top: 0.8rem; }
+
+/* Plegado: se va todo menos la propia cabecera. */
+.res-tb.plegado > tr:not(.res-tb-cab) { display: none; }
+
+/* --- tabla analítica: la estructura del instrumento ----------------------- */
+/* Total → dominio → dimensión. La sangría y el peso hacen la jerarquía visible;
+   el nivel viaja además en texto oculto dentro de cada fila, porque un lector
+   de pantalla no oye un margen izquierdo. */
+
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-total th[scope="row"] {
+  font-weight: 700;
+  padding-left: 0.7rem;
+}
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-total > * {
+  border-top: 1.5px solid var(--bs-secondary-color);
+  background: var(--bs-tertiary-bg);
+}
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-total td { font-weight: 600; }
+
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-dominio th[scope="row"] {
+  font-weight: 600;
+  padding-left: 1.7rem;
+}
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-dominio > * {
+  background: rgba(var(--bs-primary-rgb), 0.04);
+}
+
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-dimension th[scope="row"] {
+  font-weight: 400;
+  padding-left: 3rem;
+}
+
+/* En el orden por riesgo la sangría mentiría --las filas ya no van anidadas--,
+   así que el nivel pasa a una etiqueta al lado del nombre. */
+.res-nivel-tag {
+  display: inline-block; margin-left: 0.45rem;
+  font-size: 0.68rem; line-height: 1.5;
+  padding: 0 0.35rem; border-radius: 0.7rem;
+  border: 1px solid var(--bs-border-color);
+  color: var(--bs-secondary-color);
+  vertical-align: 1px; white-space: nowrap;
+}
+.res-nivel-tag.res-nv-total {
+  border-color: var(--bs-secondary-color);
+  color: var(--bs-body-color); font-weight: 600;
+}
+.res-nivel-tag.res-nv-dominio { border-color: rgba(var(--bs-primary-rgb), 0.45); }
+.res-nivel-tag.res-nv-forma {
+  border-color: var(--bs-secondary-color);
+  color: var(--bs-body-color);
+  font-variant-caps: all-small-caps; letter-spacing: 0.03em;
+}
+/* Las tres dimensiones que solo existen en la forma A. En la vista total su n
+   es el de los A y no el del cuestionario, asi que la marca no es un adorno:
+   sin ella, una fila con menos gente que sus vecinas parece un error. */
+.res-nivel-tag.res-nv-solo-a {
+  border-color: var(--bs-warning);
+  color: var(--bs-body-color);
+}
+
+/* --- pantallas angostas --------------------------------------------------- */
+
+@media (max-width: 700px) {
+  .res-fila { grid-template-columns: 1fr auto; gap: 0.3rem 0.6rem; }
+  .res-nom { grid-column: 1 / -1; text-align: left; }
+  .res-fila .res-pista, .res-fila .res-barra { grid-column: 1; }
+  .res-fila .res-val { grid-column: 2; }
+  .res-fila .res-delta { grid-column: 2; text-align: right; }
+}
+
+/* Texto del desplegable de filtros: cuántos hay puestos. */
+.res-contador { font-variant-numeric: tabular-nums; }
+
+/* --- tabla analítica: la estructura del instrumento ----------------------- */
+/* Total → dominio → dimensión. La sangría y el peso hacen la jerarquía visible;
+   el nivel viaja además en texto oculto dentro de cada fila, porque un lector
+   de pantalla no oye un margen izquierdo. */
+
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-total th[scope="row"] {
+  font-weight: 700;
+  padding-left: 0.7rem;
+}
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-total > * {
+  border-top: 1.5px solid var(--bs-secondary-color);
+  background: var(--bs-tertiary-bg);
+}
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-total td { font-weight: 600; }
+
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-dominio th[scope="row"] {
+  font-weight: 600;
+  padding-left: 1.7rem;
+}
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-dominio > * {
+  background: rgba(var(--bs-primary-rgb), 0.04);
+}
+
+.res-tabla-analitica tbody tr.res-jerarquia.res-tr-dimension th[scope="row"] {
+  font-weight: 400;
+  padding-left: 3rem;
+}
+
+/* En el orden por riesgo la sangría mentiría --las filas ya no van anidadas--,
+   así que el nivel pasa a una etiqueta al lado del nombre. */
+.res-nivel-tag {
+  display: inline-block; margin-left: 0.45rem;
+  font-size: 0.68rem; line-height: 1.5;
+  padding: 0 0.35rem; border-radius: 0.7rem;
+  border: 1px solid var(--bs-border-color);
+  color: var(--bs-secondary-color);
+  vertical-align: 1px; white-space: nowrap;
+}
+.res-nivel-tag.res-nv-total {
+  border-color: var(--bs-secondary-color);
+  color: var(--bs-body-color); font-weight: 600;
+}
+.res-nivel-tag.res-nv-dominio { border-color: rgba(var(--bs-primary-rgb), 0.45); }
+
+/* --- aviso sobre las formas A y B ---------------------------------------- */
+/* El intralaboral existe en dos versiones y la forma la decide el puesto. El
+   aviso no es decorativo: sin él se leería como diferencia de la gente algo que
+   en parte es diferencia de cuestionario. Va entre el resumen y el ranking,
+   que es justo donde empiezan a aparecer las cifras intralaborales. */
+
+.res-nota-formas {
+  border: 1px solid var(--bs-border-color);
+  border-left: 4px solid var(--bs-secondary-color);
+  border-radius: 0 0.25rem 0.25rem 0;
+  background: var(--bs-tertiary-bg);
+  padding: 0.8rem 1rem; margin: 0.2rem 0 1rem;
+  font-size: 0.85rem; max-width: 82ch;
+}
+.res-nota-formas p { margin-bottom: 0.5rem; }
+.res-nota-tit { font-weight: 700; margin-bottom: 0.3rem; }
+
+/* Cuando el segmento mezcla las dos formas ninguna referencia lo arregla, así
+   que el aviso pesa más: usa el carmesí del extremo de la escala, que en esta
+   hoja ya significa "esto hay que mirarlo". */
+.res-nota-alerta { border-left-color: #92244e; }
+.res-nota-alerta .res-nota-tit { color: #92244e; }
+
+.res-seg-sub .res-formas { font-size: 0.8125rem; opacity: 0.9; }
+
+/* --- encabezado de la lista de filas -------------------------------------- */
+/* Las dos columnas de la derecha son cifras sin unidad evidente. El encabezado
+   las nombra, y nombra además CONTRA QUÉ se mide el pp, que cambia entre el
+   ranking (la universidad) y la desagregación (el segmento entero). */
+
+.res-fila.res-encabezado {
+  align-items: end;
+  padding-bottom: 0.35rem; margin-bottom: 0.15rem;
+  border-bottom: 1.5px solid var(--bs-secondary-color);
+  border-radius: 0;
+  font-size: 0.72rem; line-height: 1.25;
+  color: var(--bs-secondary-color);
+  text-transform: none;
+}
+.res-fila.res-encabezado .res-nom,
+.res-fila.res-encabezado .res-val,
+.res-fila.res-encabezado .res-delta {
+  font-weight: 600; font-size: 0.72rem; color: var(--bs-secondary-color);
+}
+/* El nowrap de .res-delta existe para que "+14,6 pp" no se parta en dos
+   renglones, pero heredado por la cabecera le impedía envolver un rótulo de
+   varias palabras y lo cortaba contra el borde. En la cabecera sí envuelve. */
+.res-fila.res-encabezado .res-delta,
+.res-fila.res-encabezado .res-val { white-space: normal; line-height: 1.25; }
+.res-fila.res-encabezado:hover { background: none; }
+
+.res-eje-rot { font-weight: 600; }
+
+/* Marcas de la escala en la vista de comparación. La pista va de 0 a 100 % en
+   todas las filas, así que las marcas se dibujan una sola vez, arriba. */
+.res-eje { position: relative; height: 1rem; }
+.res-eje span {
+  position: absolute; bottom: 0;
+  transform: translateX(-50%);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.res-eje span:first-child { transform: none; }
+.res-eje span:last-child  { transform: translateX(-100%); }
+
+
+/* --- graficos de indicador porcentual ---------------------------------------
+   Efectividad, Cobertura Citados y Cobertura Esperados (ver grafico_indicador()
+   en mod_seguimiento.R). Barra = el porcentaje del periodo; linea = el
+   acumulado. La barra va mas clara que la linea a proposito: la que se sigue
+   con la vista de izquierda a derecha es la linea. */
+.graf-barra-periodo { fill: var(--bs-primary); opacity: .32; }
+
+.graf-barra.en-curso .graf-barra-periodo { opacity: .22; }
+
+.graf-linea-acum {
+  fill: none;
+  stroke: var(--bs-primary);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.graf-llave.periodo   { background: var(--bs-primary); opacity: .32; }
+.graf-llave.acumulado {
+  align-self: center; height: 0; width: 1.1rem;
+  border-radius: 0; background: transparent;
+  border-top: 2px solid var(--bs-primary);
+}
+
+/* El numero grande de la cabecera: el acumulado del numerador, que es la cifra
+   que el grafico no puede mostrar (dibuja porcentajes, no personas). */
+.grafico-cifra {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-right: 0.5rem;
+}
+
+/* Los dos selectores, uno debajo del otro y alineados a la derecha. */
+.grafico-ind .grafico-cab-lado:last-child,
+.grafico-acum .grafico-cab-lado:last-child {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 0.25rem;
+}
+
+
+/* Aviso del sentido de la escala en "¿Qué está pasando?". Va en el color de
+   peligro del tema --el mismo carmín del "por encima"-- porque advierte de una
+   lectura que se hace al reves por costumbre: en casi cualquier tablero mas por
+   ciento es mejor, y aqui todas las cifras son gente en riesgo alto. */
+.res-aviso-escala {
+  font-size: 0.875rem;
+  color: var(--cmp-arriba);
+  margin-top: 0.15rem;
+}
+
+
+/* --- resumen descriptivo (Resultados) ---------------------------------------
+   Nace plegado: <details> sin `open`. La cabecera dice de cuanta gente habla,
+   asi que plegado no es escondido.
+
+   PALETA. Todo el descriptivo va del verde institucional a media opacidad, y
+   no toca las dos paletas con significado de esta pestana --los cinco niveles
+   (--niv1..5) y las bandas del mapa--. Un descriptivo dice cuanta gente hay en
+   cada categoria, no si esa categoria esta mejor o peor: darle a un estrato el
+   rojo del riesgo alto afirmaria una gravedad que nadie midio. Y el bloque 4
+   tampoco usa el par --cmp-arriba/--cmp-abajo, porque alli carmin es PEOR y
+   aqui estar por encima de la tasa media es MEJOR. */
+.res-desc {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  background: var(--bs-body-bg);
+}
+
+.res-desc-sum {
+  cursor: pointer; padding: 0.6rem 0.9rem;
+  list-style: none; display: flex; flex-wrap: wrap;
+  align-items: baseline; gap: 0.2rem 0.75rem;
+}
+.res-desc-sum::-webkit-details-marker { display: none; }
+.res-desc-sum::before {
+  content: "\25B8"; margin-right: 0.35rem;
+  color: var(--bs-secondary-color); display: inline-block; transition: transform .15s;
+}
+.res-desc[open] > .res-desc-sum::before { transform: rotate(90deg); }
+.res-desc-sum:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
+
+.res-desc-sum-tit { font-weight: 600; }
+.res-desc-sum-sub { font-size: 0.8125rem; color: var(--bs-secondary-color); }
+
+.res-desc-cuerpo { padding: 0 0.9rem 0.9rem; }
+.res-desc-bloque { margin-top: 0.9rem; }
+.res-desc-bloque h6 { margin-bottom: 0.6rem; }
+
+/* auto-fill y no columnas fijas: con la ventana estrecha caen a una sola
+   columna sin necesidad de una media query propia. */
+.res-desc-rejilla {
+  display: grid; gap: 0.9rem 1.4rem;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+}
+
+.res-desc-tit {
+  font-size: 0.8125rem; font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+/* --- barras de una variable categorica --- */
+/* Dos columnas: la etiqueta y la barra. El valor NO tiene columna propia: va
+   escrito al final de su barra, para que la cifra viaje con ella y no haya que
+   emparejar dos columnas con la vista. Eso era lo que hacia que esto se leyera
+   como una tabla. */
+.res-desc-it {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 9rem) 1fr;
+  align-items: center; gap: 0.5rem;
+  font-size: 0.78rem; line-height: 1.5;
+}
+.res-desc-et {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.res-desc-it.sin-dato { color: var(--bs-secondary-color); }
+
+.res-desc-pista { position: relative; display: flex; align-items: center; height: 15px; }
+
+.res-desc-barra {
+  display: block; height: 9px; border-radius: 2px; min-width: 2px;
+  background: var(--bs-primary); opacity: 0.55;
+}
+.res-desc-it.sin-dato .res-desc-barra {
+  background: var(--bs-secondary-color); opacity: 0.35;
+}
+
+.res-desc-cifra-bar {
+  margin-left: 0.4rem; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.res-desc-nn { color: var(--bs-secondary-color); margin-left: 0.3rem; }
+
+/* --- variables numericas --- */
+.res-desc-nums { display: flex; flex-wrap: wrap; gap: 0.15rem 1.1rem; }
+.res-desc-cv {
+  font-size: 1rem; font-weight: 600;
+  font-variant-numeric: tabular-nums; line-height: 1.2;
+}
+.res-desc-ce { font-size: 0.72rem; color: var(--bs-secondary-color); }
+
+/* --- cruce de dos variables --- */
+/* Mismo color neutro que las barras sueltas: el grafico reutiliza sus piezas
+   (.res-desc-it, .res-desc-barra) y aqui solo va lo que es propio del cruce. */
+.res-cruce {
+  border-top: 1px solid var(--bs-border-color);
+  padding-top: 0.9rem;
+}
+.res-cruce-mandos {
+  display: grid; gap: 0 1rem; align-items: end;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+}
+
+/* La tabla puede tener muchas columnas (nivel academico, estado civil): se
+   desplaza dentro de su caja y no empuja la pagina. */
+.res-cruce-envoltura { overflow-x: auto; margin-bottom: 0.4rem; }
+.res-cruce-tabla {
+  font-size: 0.78rem; width: auto; min-width: 100%;
+  font-variant-numeric: tabular-nums; margin-bottom: 0;
+}
+.res-cruce-tabla th, .res-cruce-tabla td { white-space: nowrap; }
+.res-cruce-tabla thead th { font-weight: 600; vertical-align: bottom; }
+.res-cruce-tabla td { text-align: right; }
+.res-cruce-tabla thead tr:last-child th:not(.res-cruce-esq) { text-align: right; }
+.res-cruce-tabla tbody th[scope="row"] { font-weight: 500; }
+.res-cruce-tabla .res-cruce-marg,
+.res-cruce-tabla tr.res-cruce-total > * {
+  background: var(--bs-tertiary-bg);
+}
+.res-cruce-tabla tr.res-cruce-total > * { border-top: 2px solid var(--bs-border-color); }
+.res-cruce-tabla .sin-dato,
+.res-cruce-tabla tr.sin-dato > * { color: var(--bs-secondary-color); }
+.res-desc-var.sin-dato > .res-desc-tit { color: var(--bs-secondary-color); }
+.res-desc-tit .res-desc-nn { font-weight: 400; }

@@ -1,0 +1,13 @@
+1. cd "C:\Users\ENDS\Desktop\riesgo_psicosocial\shiny_resultados\Shiny_seguimiento"
+dir
+
+2. & "C:\Program Files\R\R-4.6.1\bin\x64\Rscript.exe" -e "shiny::runApp('.', port = 7788, host = '127.0.0.1', launch.browser = FALSE)"
+
+Deberías ver algo como:
+
+Listening on http://127.0.0.1:7788
+
+3. Luego, se abrea una nueva terminal de power Shell y ejecutar: 
+
+ngrok http 7788 --url https://breach-proven-earthen.ngrok-free.dev
+

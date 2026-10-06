@@ -1,0 +1,247 @@
+Perfecto, voy a explicar todos los cambios que hice paso a paso. Primero, déjame leer el Dockerfile final:
+
+Excelente, aquí está la explicación detallada de todos los cambios:
+
+---
+
+## **CAMBIOS EN EL DOCKERFILE**
+
+### **CAMBIO 1: Imagen Base (Línea 2)**
+
+**ANTES:**
+```dockerfile
+FROM r-base:latest
+```
+
+**DESPUÉS:**
+```dockerfile
+FROM rocker/tidyverse:latest
+```
+
+**¿Qué cambió y por qué?**
+
+| Aspecto | `r-base:latest` | `rocker/tidyverse:latest` |
+|---------|---|---|
+| **Tamaño** | ~500 MB | ~800 MB |
+| **R instalado** | Sí | Sí |
+| **Dependencias del sistema** | Mínimas | Muchas (dev tools, compiladores) |
+| **Paquetes R preinstalados** | Ninguno | tidyverse, ggplot2, dplyr, readxl, stringr, etc. |
+| **¿Compila officer y flextable?** | ❌ No | ✅ Sí |
+
+**Por qué funcionó con `rocker/tidyverse`:**
+
+```
+r-base:latest
+└─ Linux básico + R
+    └─ Falta: compiladores C++, headers de XML, headers de Protobuf
+    └─ officer necesita eso → FALLA
+
+rocker/tidyverse:latest
+└─ Linux + R + herramientas de compilación preinstaladas
+    └─ Ya tiene: build-essential, libxml2-dev, libprotobuf-dev, etc.
+    └─ officer compila correctamente → ÉXITO
+```
+
+---
+
+### **CAMBIO 2: Instalación de Shiny (Línea 8)**
+
+**ANTES:**
+```dockerfile
+# Instala dependencias del sistema necesarias para compilar librerías de R
+RUN apt-get update && apt-get install -y \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libxml2-dev \
+    libpq-dev \
+    libfontconfig1-dev \
+    libuv1-dev \
+    libfreetype6-dev \
+    pkg-config \
+    libprotobuf-dev \
+    protobuf-compiler \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instala Shiny primero (es lo más importante)
+RUN R --slave -e 'install.packages("shiny", repos="https://cloud.r-project.org")'
+```
+
+**DESPUÉS:**
+```dockerfile
+# Instala Shiny y librerías adicionales necesarias
+RUN R --slave -e 'install.packages(c("shiny", "pool", "scrypt"), repos="https://cloud.r-project.org")'
+```
+
+**¿Qué cambió?**
+
+1. **Eliminé toda la instalación de dependencias del sistema** → Ya vienen en `rocker/tidyverse`
+2. **Combiné Shiny + pool + scrypt en una sola línea** → Menos capas en la imagen, más eficiente
+3. **Eliminé la instalación de librerías que ya vienen** → `rocker/tidyverse` ya tiene tidyverse, dplyr, readxl, stringr, magrittr
+
+**Ahorro:**
+- Antes: 17 líneas de instalación de dependencias
+- Después: 1 línea (todo ya está en la imagen base)
+
+---
+
+### **CAMBIO 3: Instalación de librerías R (Líneas 12-21)**
+
+**ANTES:**
+```dockerfile
+# Instala todas las demás librerías de R necesarias
+# Esta es la lista completa que necesita tu app + el script de crontab
+RUN R --slave -e '\
+    install.packages(c(\
+        "bslib",\
+        "DBI",\
+        "RPostgres",\
+        "pool",\
+        "scrypt",\
+        "stringi",\
+        "dplyr",\
+        "magrittr",\
+        "tidyverse",\
+        "readxl",\
+        "stringr"\
+    ), repos="https://cloud.r-project.org")\
+    '
+
+# Instala officer y flextable por separado (para generar documentos Word)
+RUN R --slave -e 'install.packages(c("officer", "flextable"), repos="https://cloud.r-project.org")'
+```
+
+**DESPUÉS:**
+```dockerfile
+# Instala librerías que no vienen en rocker/tidyverse
+# (tidyverse, dplyr, readxl, stringr, magrittr ya están incluidas)
+RUN R --slave -e '\
+    install.packages(c(\
+        "bslib",\
+        "DBI",\
+        "RPostgres",\
+        "stringi",\
+        "officer",\
+        "flextable"\
+    ), repos="https://cloud.r-project.org")\
+    '
+```
+
+**¿Qué cambió?**
+
+| Paquete | Antes | Después | Razón |
+|---------|-------|---------|-------|
+| `bslib` | ✓ Instalar | ✓ Instalar | Tu app la necesita |
+| `DBI` | ✓ Instalar | ✓ Instalar | Para conectar a BD |
+| `RPostgres` | ✓ Instalar | ✓ Instalar | Driver de PostgreSQL |
+| `pool` | ✓ Instalar | ❌ Arriba (línea 8) | Optimización: agrupada con shiny |
+| `scrypt` | ✓ Instalar | ❌ Arriba (línea 8) | Optimización: agrupada con shiny |
+| `stringi` | ✓ Instalar | ✓ Instalar | Tu app la necesita |
+| `dplyr` | ✓ Instalar | ❌ Ya en rocker/tidyverse | NO necesita instalar |
+| `magrittr` | ✓ Instalar | ❌ Ya en rocker/tidyverse | NO necesita instalar |
+| `tidyverse` | ✓ Instalar | ❌ Ya en rocker/tidyverse | NO necesita instalar |
+| `readxl` | ✓ Instalar | ❌ Ya en rocker/tidyverse | NO necesita instalar |
+| `stringr` | ✓ Instalar | ❌ Ya en rocker/tidyverse | NO necesita instalar |
+| `officer` | ❌ Falla silenciosamente | ✓ Instalar | NUEVA librería (ahora funciona) |
+| `flextable` | ❌ Falla silenciosamente | ✓ Instalar | NUEVA librería (ahora funciona) |
+
+**Consolidación:**
+
+```
+Antes: 2 comandos RUN (líneas 20 y después)
+└─ Comando 1: 16 paquetes
+└─ Comando 2: 2 paquetes (officer, flextable) - FALLABA
+
+Después: 1 comando RUN (líneas 12-21)
+└─ 6 paquetes (solo los que NO están en rocker/tidyverse)
+└─ officer y flextable se instalan CORRECTAMENTE
+```
+
+---
+
+## **LÍNEAS QUE NO CAMBIARON**
+
+Estas líneas permanecieron igual porque ya funcionaban:
+
+```dockerfile
+# Línea 5: Directorio de trabajo
+WORKDIR /app
+
+# Línea 26: Copiar aplicación
+COPY ../shiny_resultados/Shiny_seguimiento_nuevo/Shiny_seguimiento /app
+
+# Línea 29: Exponer puerto
+EXPOSE 7788
+
+# Línea 33: Comando de inicio
+CMD ["R", "--slave", "-e", "shiny::runApp('/app', port = 7788, host = '0.0.0.0')"]
+```
+
+---
+
+## **CAMBIOS EN `app.R`**
+
+También cambiaste dos líneas en `app.R`:
+
+**ANTES (líneas 13-14):**
+```r
+# library(officer)      # informe en Word de la pestana de avance
+# library(flextable)    # tablas del informe en Word
+```
+
+**DESPUÉS (líneas 13-14):**
+```r
+library(officer)      # informe en Word de la pestana de avance
+library(flextable)    # tablas del informe en Word
+```
+
+**¿Por qué?** Las descomentaste para que la app cargue estas librerías cuando inicia.
+
+---
+
+## **CAMBIOS EN SCRIPTS R**
+
+También cambiaste dos archivos para que usen `postgres` como host:
+
+### **1. `R/utils_db.R` - Línea 15**
+
+**ANTES:**
+```r
+host     = Sys.getenv("PG_HOST",     "/var/run/postgresql"),
+```
+
+**DESPUÉS:**
+```r
+host     = Sys.getenv("PG_HOST",     "postgres"),
+```
+
+**¿Por qué?** En Docker, el nombre del servicio es `postgres`, no el socket Unix `/var/run/postgresql`.
+
+### **2. `conectar_bd.R` - Línea 37**
+
+**ANTES:**
+```r
+host     = Sys.getenv("PG_HOST", "/var/run/postgresql"),
+```
+
+**DESPUÉS:**
+```r
+host     = Sys.getenv("PG_HOST", "postgres"),
+```
+
+**¿Por qué?** Same reason - Docker networking usa nombres de servicios.
+
+---
+
+## **RESUMEN DE CAMBIOS**
+
+| Archivo | Cambios | Impacto |
+|---------|---------|---------|
+| **Dockerfile** | Base image, reducción de instalaciones, agregar officer/flextable | ✅ Todo funciona ahora |
+| **app.R** | Descommentar officer y flextable | ✅ App carga las nuevas librerías |
+| **R/utils_db.R** | Cambiar host a `postgres` | ✅ Se conecta a la BD correctamente |
+| **conectar_bd.R** | Cambiar host a `postgres` | ✅ Script de datos se conecta correctamente |
+
+---
+
+¿Quieres que profundice en algo específico? 🎯

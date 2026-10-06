@@ -1,0 +1,27 @@
+# --- R / RStudio ---
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# --- Credenciales ---
+.Renviron
+.Renviron.local
+.env
+
+# --- Datos personales y respaldos de la base (NO subir) ---
+backups/
+respaldos/
+*.dump
+*.sql
+*.bak
+marco.xlsx
+Simulacion_respuestas_ODK.csv
+
+# --- Logs ---
+docker/logs/
+*.log
+descarga_datos_reales/logs_conexion.txt
+
+# --- Metadatos de Windows al copiar a WSL ---
+*:Zone.Identifier

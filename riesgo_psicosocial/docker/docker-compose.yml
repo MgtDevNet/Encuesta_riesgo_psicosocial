@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # SERVICIO 1: PostgreSQL (Base de datos)
+  # ============================================================================
+  postgres:
+    # Usa la imagen oficial de PostgreSQL versión 16
+    image: postgres:16
+
+    # Nombre del contenedor
+    container_name: riesgo_psicosocial_postgres
+
+    # Variables de entorno para PostgreSQL
+    environment:
+      POSTGRES_USER: erps_user
+      POSTGRES_PASSWORD: "123456"
+      POSTGRES_DB: riesgo_psicosocial
+      # Timezone para que coincida con tu app
+      TZ: America/Bogota
+
+    # Puertos: host:contenedor
+    # Así accedes desde tu máquina local a la BD si lo necesitas
+    ports:
+      - "5432:5432"
+
+    # Volúmenes: persist datos de PostgreSQL
+    volumes:
+      # Este volumen guarda todos los datos de la BD
+      # Incluso si borras el contenedor, los datos persisten
+      - postgres_data:/var/lib/postgresql/data
+
+      # Este archivo restaura el backup la PRIMERA VEZ que levanta
+      # En ejecuciones posteriores, se ignora (la BD ya existe)
+      # - ../backup_bd.sql:/docker-entrypoint-initdb.d/backup_bd.sql
+
+    # Red personalizada (para que Shiny pueda conectar)
+    networks:
+      - riesgo_network
+
+    # Health check: verifica que PostgreSQL esté listo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erps_user -d riesgo_psicosocial"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================================
+  # SERVICIO 2: Shiny (Tu aplicación R)
+  # ============================================================================
+  shiny:
+    # Construye la imagen usando el Dockerfile que creamos
+    build:
+      context: ..  # La carpeta riesgo_psicosocial (un nivel arriba de docker/)
+      dockerfile: docker/Dockerfile
+
+    # Nombre del contenedor
+    container_name: riesgo_psicosocial_shiny
+
+    # Variables de entorno para que tu app se conecte a PostgreSQL
+    # IMPORTANTE: en Docker, el host es el nombre del servicio (postgres)
+    # NO localhost, porque localhost dentro del contenedor es el contenedor mismo
+    environment:
+      PG_HOST: postgres          # Nombre del servicio PostgreSQL
+      PG_PORT: "5432"            # Puerto de PostgreSQL (interno del contenedor)
+      PG_DB: riesgo_psicosocial  # Nombre de la BD
+      PG_USER: erps_user         # Usuario
+      PG_PASSWORD: "123456"      # Contraseña
+      TZ: America/Bogota
+
+    # Puertos: host:contenedor
+    # Accedes a la app en http://localhost:7788
+    ports:
+      - "7788:7788"
+
+    # Volúmenes: sincroniza carpeta de logs (opcional)
+    volumes:
+      - ./logs:/app/logs
+      
+
+    # Red personalizada (para comunicarse con PostgreSQL)
+    networks:
+      - riesgo_network
+
+    # Espera a que PostgreSQL esté listo ANTES de intentar iniciar, verificación con healthcheck
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # Reinicia automáticamente si falla
+    restart: unless-stopped
+
+# ============================================================================
+# VOLÚMENES (Persistencia de datos)
+# ============================================================================
+volumes:
+  # Este volumen guarda los datos de PostgreSQL en tu máquina
+  # Ruta en Windows: %APPDATA%\Docker\volumes\riesgo_psicosocial_postgres_data\_data
+  postgres_data:
+    driver: local
+
+# ============================================================================
+# REDES (Permite comunicación entre servicios)
+# ============================================================================
+networks:
+  riesgo_network:
+    driver: bridge
