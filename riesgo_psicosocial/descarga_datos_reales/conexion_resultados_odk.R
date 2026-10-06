@@ -97,7 +97,12 @@ tryCatch({
   }
   
   # Construir URL y consultar ODK
-  url_base <- "https://roman-april-gigahertz.ngrok-free.dev/v1/projects/1/forms/riesgo_psicosocial2.svc/Submissions"
+  # La direccion del formulario en ODK Central. Se puede cambiar sin tocar el
+  # codigo con ODK_URL en el .Renviron (la de ngrok cambia cada vez que ngrok se
+  # reinicia); si no esta definida, se usa esta.
+  url_base <- Sys.getenv(
+    "ODK_URL",
+    "https://roman-april-gigahertz.ngrok-free.dev/v1/projects/1/forms/riesgo_psicosocial2.svc/Submissions")
   url_filtro <- paste0("?$filter=__system/reviewState%20ne%20'rejected'", filtro_fecha)
   
   response <- httr::RETRY(

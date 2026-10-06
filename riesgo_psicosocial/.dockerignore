@@ -1,0 +1,32 @@
+# -----------------------------------------------------------------------------
+# .dockerignore -- lo que NO se copia a la imagen de la Shiny.
+# Va en la raiz (riesgo_psicosocial/) porque docker-compose.yml construye con
+# `context: ..`: Docker solo lee el .dockerignore de la raiz del contexto, no el
+# de docker/.
+# -----------------------------------------------------------------------------
+
+# Credenciales: la app recibe la conexion por variables de entorno (compose)
+**/.Renviron
+**/.Renviron.*
+**/.env
+
+# Respaldos y copias de la base: datos personales, y no los usa la app
+backups
+**/respaldos
+**/*.dump
+**/*.sql
+**/*.bak
+
+# Descarga de ODK: no va en la imagen, se monta como /descarga (compose)
+descarga_datos_reales
+
+# Basura de editores, R y Windows
+**/.git
+**/.Rproj.user
+**/.Rhistory
+**/.RData
+**/*.log
+docker/logs
+**/*:Zone.Identifier
+**/~$*
+*.zip

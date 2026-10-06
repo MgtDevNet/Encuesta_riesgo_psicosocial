@@ -1,0 +1,32 @@
+# Para hacer las descargas manuales de datos de odk
+# a la shiny. 
+
+cd ~/trabajo/riesgo_psicosocial/descarga_datos_reales
+bash actualizar_datos.sh
+
+Para volver a calificar todo aunque no haya envíos nuevos (por ejemplo, después de cambiar los diccionarios o la forma de calificar):
+
+bash actualizar_datos.sh --calificar
+
+# si de casualidad se quiere activar el crontab
+crontab -e
+
+Paso 1. Abrir el cron
+crontab -e
+
+La primera vez pregunta qué editor usar. Elige nano, que suele ser la opción 1.
+
+Paso 2. Agregar la línea
+
+Al final del archivo, pega:
+
+*/15 * * * * /bin/bash /home/mgtdev/trabajo/riesgo_psicosocial/descarga_datos_reales/actualizar_datos.sh >> /home/mgtdev/trabajo/riesgo_psicosocial/descarga_datos_reales/logs_conexion.txt 2>&1
+*/15 * * * * significa "cada 15 minutos". Para cada 30 minutos usa */30 * * * *.
+Lo que va después de >> es el archivo donde queda lo que pasó en cada ejecución.
+
+Guarda con Ctrl+O y Enter, y sal con Ctrl+X. Debe decir crontab: installing new crontab.
+
+Paso 3. Encender cron
+WSL no lo enciende solo:
+
+sudo service cron start

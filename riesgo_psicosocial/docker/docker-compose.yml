@@ -1,4 +1,15 @@
-version: '3.8'
+# ============================================================================
+# CONFIGURACION: docker/.env
+# ============================================================================
+# Usuario, contrasena y puertos NO van escritos aqui: se leen del archivo
+# docker/.env, que cada equipo tiene el suyo y que NO se sube a git. Para
+# crearlo, copie docker/.env.example a docker/.env y llene los valores.
+# Sin docker/.env, docker compose se detiene con un mensaje que lo dice.
+#
+# OJO: no agregue `name:` a este archivo ni cambie la carpeta docker/ de nombre.
+# Docker nombra el volumen de la base con el nombre del proyecto (la carpeta),
+# y cambiarlo haria que la base arranque VACIA (los datos seguirian en el
+# volumen viejo, pero la app no lo usaria).
 
 services:
   # ============================================================================
@@ -11,18 +22,24 @@ services:
     # Nombre del contenedor
     container_name: riesgo_psicosocial_postgres
 
-    # Variables de entorno para PostgreSQL
+    # Variables de entorno para PostgreSQL.
+    # La contrasena solo se aplica la PRIMERA vez que se crea el volumen de la
+    # base: cambiarla en docker/.env despues NO cambia la de una base que ya
+    # existe (eso se hace con ALTER USER dentro de Postgres).
     environment:
-      POSTGRES_USER: erps_user
-      POSTGRES_PASSWORD: "123456"
-      POSTGRES_DB: riesgo_psicosocial
+      POSTGRES_USER: ${PG_USER:?Falta PG_USER en docker/.env (copie docker/.env.example)}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?Falta PG_PASSWORD en docker/.env (copie docker/.env.example)}
+      POSTGRES_DB: ${PG_DB:?Falta PG_DB en docker/.env (copie docker/.env.example)}
       # Timezone para que coincida con tu app
       TZ: America/Bogota
 
     # Puertos: host:contenedor
-    # Así accedes desde tu máquina local a la BD si lo necesitas
+    # Solo para conectarse a la base desde ESTE equipo (DBeaver, psql). Por
+    # defecto escucha unicamente en 127.0.0.1: en un servidor en la nube, publicar
+    # el 5432 abierto dejaria la base expuesta a internet. La Shiny no usa este
+    # puerto: llega a la base por la red interna de Docker.
     ports:
-      - "5432:5432"
+      - "${PUERTO_BD:-127.0.0.1:5432}:5432"
 
     # Volúmenes: persist datos de PostgreSQL
     volumes:
@@ -30,20 +47,21 @@ services:
       # Incluso si borras el contenedor, los datos persisten
       - postgres_data:/var/lib/postgresql/data
 
-      # Este archivo restaura el backup la PRIMERA VEZ que levanta
-      # En ejecuciones posteriores, se ignora (la BD ya existe)
-      # - ../backup_bd.sql:/docker-entrypoint-initdb.d/backup_bd.sql
-
     # Red personalizada (para que Shiny pueda conectar)
     networks:
       - riesgo_network
 
     # Health check: verifica que PostgreSQL esté listo
+    # ($$ = la variable se lee dentro del contenedor, no al leer este archivo)
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U erps_user -d riesgo_psicosocial"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+    # Arranca sola al reiniciar el equipo o el servidor, igual que la Shiny.
+    # Sin esto, tras un reinicio la Shiny arrancaba pero la base quedaba apagada.
+    restart: unless-stopped
 
   # ============================================================================
   # SERVICIO 2: Shiny (Tu aplicación R)
@@ -63,20 +81,28 @@ services:
     environment:
       PG_HOST: postgres          # Nombre del servicio PostgreSQL
       PG_PORT: "5432"            # Puerto de PostgreSQL (interno del contenedor)
-      PG_DB: riesgo_psicosocial  # Nombre de la BD
-      PG_USER: erps_user         # Usuario
-      PG_PASSWORD: "123456"      # Contraseña
+      PG_DB: ${PG_DB}
+      PG_USER: ${PG_USER}
+      PG_PASSWORD: ${PG_PASSWORD}
       TZ: America/Bogota
 
     # Puertos: host:contenedor
     # Accedes a la app en http://localhost:7788
+    # Por defecto solo desde ESTE equipo (127.0.0.1). En la nube se entra por
+    # HTTPS a traves de Caddy, que corre en el mismo servidor. Para abrirla a
+    # otros equipos de la red local, ponga PUERTO_SHINY=7788 en docker/.env.
     ports:
-      - "7788:7788"
+      - "${PUERTO_SHINY:-127.0.0.1:7788}:7788"
 
     # Volúmenes: sincroniza carpeta de logs (opcional)
     volumes:
       - ./logs:/app/logs
-      - ../descarga_datos_reales:/descarga:ro      
+      # Descarga de ODK: actualizar_datos.sh la corre DENTRO de este contenedor
+      # (docker exec ... Rscript /descarga/conexion_resultados_odk.R), con el R y
+      # los paquetes de la imagen, asi que el equipo solo necesita Docker. Solo
+      # lectura: el script lee de aqui su codigo y el .Renviron con las
+      # credenciales de ODK, y no escribe nada en la carpeta.
+      - ../descarga_datos_reales:/descarga:ro
 
     # Red personalizada (para comunicarse con PostgreSQL)
     networks:
@@ -95,7 +121,7 @@ services:
 # ============================================================================
 volumes:
   # Este volumen guarda los datos de PostgreSQL en tu máquina
-  # Ruta en Windows: %APPDATA%\Docker\volumes\riesgo_psicosocial_postgres_data\_data
+  # Ruta en Windows: %APPDATA%\Docker\volumes\docker_postgres_data\_data
   postgres_data:
     driver: local
 

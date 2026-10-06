@@ -22,10 +22,12 @@ La aplicación son dos contenedores que corren en el computador de cada persona:
 
 ```
 riesgo_psicosocial/
+├── .dockerignore                      # lo que NO se copia a la imagen (credenciales, respaldos)
 ├── docker/
 │   ├── Dockerfile
 │   ├── docker-compose.yml
-│   └── .dockerignore
+│   ├── .env.example                   # plantilla de la configuración (va a git)
+│   └── .env                           # usuario, contraseña y puertos de ESTE equipo — PRIVADO
 ├── shiny_resultados/
 │   └── Shiny_seguimiento_nuevo/
 │       └── Shiny_seguimiento/
@@ -34,6 +36,7 @@ riesgo_psicosocial/
 │           ├── R/  Modules/  www/  Diccionarios/  scripts/
 │           └── ... (resto de archivos)
 ├── descarga_datos_reales/
+│   ├── actualizar_datos.sh            # lo que corre el cron: descarga de ODK + calificación
 │   ├── conexion_resultados_odk.R      # descarga de ODK -> public.odk_respuestas_intento_2
 │   ├── .Renviron                      # credenciales de ODK (ODK_USER, ODK_PASSWORD) — PRIVADO
 │   ├── iniciar_wsl.bat
@@ -73,10 +76,17 @@ Copia la carpeta **`riesgo_psicosocial` completa** (USB, Drive o .zip). Debe lle
 
 Entrega siempre la **versión actual** del código.
 
-### Paso 3: Credenciales de ODK
+### Paso 3: Credenciales
 
-`descarga_datos_reales\.Renviron` tiene el usuario y la contraseña de ODK. Va dentro de la carpeta
-si la copias entera; si no, envíalo por un canal privado (no por chats o correos compartidos).
+Dos archivos tienen contraseñas y **no están en git**:
+
+- `descarga_datos_reales\.Renviron`: usuario y contraseña de ODK.
+- `docker\.env`: usuario y contraseña de la base de datos.
+
+Van dentro de la carpeta si la copias entera; si no, envíalos por un canal privado (no por chats
+o correos compartidos). En un computador **nuevo** se puede poner otra contraseña de base en
+`docker\.env`: la copia (`bd.dump`) no guarda la contraseña, y la base nueva se crea con la que
+diga ese archivo.
 
 ---
 
@@ -89,9 +99,10 @@ si la copias entera; si no, envíalo por un canal privado (no por chats o correo
    - Instala siguiendo el instalador y **reinicia** el computador.
    - Abre Docker Desktop y espera a que diga que está corriendo (*Engine running*).
 2. **PowerShell** (incluido en Windows).
-3. **WSL con Ubuntu** — solo si este computador va a descargar los datos de ODK (paso 6).
+3. **WSL con Ubuntu** — solo si este computador va a descargar los datos de ODK solo (paso 6).
+   No hace falta instalar R: la descarga corre dentro de Docker.
 
-### Paso 1: Abre PowerShell en la carpeta docker
+### Paso 1: Abre PowerShell en la carpeta docker y crea la configuración
 
 Presiona `Windows + R`, escribe `powershell` y presiona Enter. Luego:
 
@@ -100,6 +111,22 @@ cd "C:\ruta\a\riesgo_psicosocial\docker"
 ```
 
 Reemplaza `C:\ruta\a\riesgo_psicosocial` con la ruta donde quedó la carpeta.
+
+Si la carpeta **no** trae `docker\.env` (por ejemplo, porque viene de `git clone`), créalo desde
+la plantilla:
+
+```powershell
+copy .env.example .env
+notepad .env
+```
+
+En el Bloc de notas cambia `PG_PASSWORD` por una contraseña nueva, larga y aleatoria. Guarda y
+cierra. Sin este archivo, `docker compose` se detiene con el mensaje
+`Falta PG_PASSWORD en docker/.env`.
+
+> ❗ La contraseña solo se aplica la **primera vez** que se crea la base (paso 2). Si este
+> computador ya tenía la base creada, `PG_PASSWORD` tiene que ser la que se usó entonces;
+> cambiarla después en `.env` no cambia la de la base, y la app dejaría de conectarse.
 
 ### Paso 2: Levanta SOLO la base de datos
 
@@ -160,37 +187,45 @@ Entra con **los mismos usuarios que ya existían**: vienen dentro de la copia de
 > docker exec -it riesgo_psicosocial_shiny Rscript /app/scripts/gestionar_usuarios.R crear admin administrador "Administrador"
 > ```
 
-### Paso 6 (opcional): Descarga automática desde ODK
+### Paso 6: Descarga de ODK (manual o automática)
 
-Solo si este computador debe traer las encuestas nuevas de ODK. Docker **no** incluye esta parte:
-se configura en el WSL (Ubuntu) del computador.
+`descarga_datos_reales/actualizar_datos.sh` hace todo el ciclo:
 
-1. Abre **Ubuntu** e instala R y sus dependencias:
-   ```bash
-   sudo apt update && sudo apt install -y r-base libpq-dev libcurl4-openssl-dev libssl-dev libxml2-dev
-   sudo Rscript -e 'install.packages(c("tidyverse","httr","DBI","RPostgres","lubridate"), repos="https://cloud.r-project.org")'
+1. Descarga de ODK los envíos nuevos → `public.odk_respuestas_intento_2`
+2. Si llegó alguno, los califica con `conectar_bd.R` → `public.respuestas_procesadas`
+3. La Shiny lo detecta sola en menos de un minuto (la pestaña *Resultados* al recargar la página)
+
+Los dos pasos corren **dentro del contenedor de la Shiny**: el computador solo necesita Docker,
+no R. Antes de usarlo, verifica que exista `descarga_datos_reales/.Renviron` con `ODK_USER` y
+`ODK_PASSWORD` (y, si la dirección de ODK cambió, `ODK_URL`).
+
+**Manual**, desde Ubuntu (WSL) o desde un servidor Linux:
+
+```bash
+cd /ruta/a/riesgo_psicosocial/descarga_datos_reales
+bash actualizar_datos.sh               # descarga y, si hay nuevos, califica
+bash actualizar_datos.sh --calificar   # además recalifica todo aunque no haya nuevos
+```
+
+**Automática cada 15 minutos (cron):**
+
+1. `crontab -e` (la primera vez elige `nano`) y agrega al final, con la ruta de **este** equipo:
    ```
-2. Verifica que exista `descarga_datos_reales/.Renviron` con `ODK_USER` y `ODK_PASSWORD`.
-3. Programa la descarga cada 15 minutos con `crontab -e`, agregando esta línea (cambia
-   `USUARIO` y la ruta por las de **este** computador):
+   */15 * * * * /bin/bash /ruta/a/riesgo_psicosocial/descarga_datos_reales/actualizar_datos.sh >> /ruta/a/riesgo_psicosocial/descarga_datos_reales/logs_conexion.txt 2>&1
    ```
-   */15 * * * * /usr/bin/Rscript /mnt/c/Users/USUARIO/Desktop/riesgo_psicosocial/descarga_datos_reales/conexion_resultados_odk.R >> /mnt/c/Users/USUARIO/Desktop/riesgo_psicosocial/descarga_datos_reales/logs_conexion.txt 2>&1
-   ```
-4. Enciende cron (WSL no lo inicia solo; repítelo cada vez que se reinicie el computador):
+   Guarda con `Ctrl+O`, Enter, y sal con `Ctrl+X`.
+2. **Solo en WSL:** enciende cron (WSL no lo inicia solo; repítelo tras cada reinicio, o activa
+   systemd en `/etc/wsl.conf` con `[boot]` / `systemd=true`):
    ```bash
    sudo service cron start
    ```
-5. Revisa `logs_conexion.txt` para confirmar que la descarga corre.
+   En un servidor Linux en la nube cron ya está encendido.
+3. Revisa que corre: `tail -20 /ruta/a/riesgo_psicosocial/descarga_datos_reales/logs_conexion.txt`
+   debe mostrar líneas con fecha como `[2026-10-06 10:45:00] Descargando envios de ODK...`.
 
-> ⚠️ **Limitaciones actuales:**
-> - La descarga deja las encuestas en `public.odk_respuestas_intento_2`, pero **la Shiny lee
->   `public.respuestas_procesadas`**, que solo se actualiza al ejecutar `conectar_bd.R`. Hoy eso
->   NO es automático. Para pasar las encuestas nuevas a la app:
->   ```powershell
->   docker exec -it riesgo_psicosocial_shiny sh -c "cd /app && Rscript conectar_bd.R"
->   ```
-> - La dirección de ODK en `conexion_resultados_odk.R` es una URL gratuita de ngrok, que cambia
->   cada vez que ngrok se reinicia.
+> ⚠️ En WSL el cron solo corre mientras WSL esté abierto (deja una ventana de Ubuntu abierta o
+> usa `iniciar_wsl.bat`). La dirección de ODK por defecto es una URL gratuita de ngrok, que
+> cambia cada vez que ngrok se reinicia: si cambia, ponla en `ODK_URL` dentro del `.Renviron`.
 
 ---
 
@@ -247,10 +282,9 @@ docker cp riesgo_psicosocial_postgres:/tmp/bd.dump ./backups/bd.dump
 ```
 
 **Recalificar las respuestas** (reescribe `public.respuestas_procesadas` desde
-`public.odk_respuestas_intento_2`):
+`public.odk_respuestas_intento_2`; la Shiny lo ve sola en menos de un minuto):
 ```powershell
 docker exec -it riesgo_psicosocial_shiny sh -c "cd /app && Rscript conectar_bd.R"
-docker restart riesgo_psicosocial_shiny
 ```
 
 **Cargar un marco muestral nuevo** (solo en una base que ya tiene `public.respuestas_procesadas`):
@@ -262,10 +296,21 @@ docker exec -it riesgo_psicosocial_shiny Rscript /app/scripts/preparar_bd.R --ma
 
 ## ❌ Solución de problemas
 
+### `Falta PG_PASSWORD en docker/.env` (o `PG_USER`, `PG_DB`)
+No existe `docker/.env` o le falta esa línea. Créalo desde la plantilla (Parte 2, paso 1).
+
 ### `port is already allocated` (puerto 5432 o 7788 ocupado)
 Otro programa usa ese puerto; lo más común es un PostgreSQL instalado en Windows. Apágalo
-(Servicios de Windows → `postgresql-...` → Detener) o cambia el puerto de la izquierda en
-`docker-compose.yml` (por ejemplo `"5433:5432"`).
+(Servicios de Windows → `postgresql-...` → Detener) o cambia el puerto en `docker/.env`, por
+ejemplo `PUERTO_BD=127.0.0.1:5433` (y en DBeaver usa 5433). Luego `docker compose up -d`.
+
+### Otro computador de la red no puede abrir la Shiny
+Por seguridad, la Shiny solo acepta conexiones del propio equipo (`127.0.0.1`). Para abrirla a
+la red local pon `PUERTO_SHINY=7788` en `docker/.env` y ejecuta `docker compose up -d`.
+
+### La app dice "No se pudo conectar a PostgreSQL" después de cambiar `docker/.env`
+`PG_PASSWORD` no coincide con la de la base que ya existe (la contraseña solo se aplica al crear
+la base). Vuelve a poner la contraseña anterior en `docker/.env` y ejecuta `docker compose up -d`.
 
 ### La app dice "No se puede iniciar la aplicación… le faltan los datos del estudio"
 La base está vacía o incompleta. Revisa que el paso 3 (cargar los datos) haya terminado sin
@@ -287,8 +332,9 @@ y repite desde el paso 3.
 - Si persiste: `docker compose restart`
 
 ### No veo datos nuevos en la app
-- Recarga la página: la app no se refresca sola.
-- Confirma que se ejecutó `conectar_bd.R` después de la descarga de ODK.
+- Revisa el final de `descarga_datos_reales/logs_conexion.txt`: debe decir `Calificacion lista`.
+  Si dice `ERROR`, el mensaje indica qué falló.
+- El avance se actualiza solo en menos de un minuto; la pestaña *Resultados*, al recargar.
 - Si cambiaste código, reconstruye: `docker compose up -d --build shiny`
 
 ---
@@ -309,6 +355,12 @@ Si algo no funciona, envía:
 ---
 
 # 📚 Anexo: explicación de docker-compose.yml
+
+> ℹ️ Esta explicación es de una versión anterior del archivo. Lo que cambió desde entonces:
+> ya no lleva `version:` (Docker la ignora); usuario, contraseña y puertos se leen de
+> `docker/.env` en vez de estar escritos en el archivo; los puertos escuchan solo en
+> `127.0.0.1`; Postgres también tiene `restart: unless-stopped`; y la Shiny monta
+> `descarga_datos_reales` como `/descarga` (solo lectura) en vez de `marco.xlsx` y el CSV.
 
 ## **ESTRUCTURA GENERAL**
 

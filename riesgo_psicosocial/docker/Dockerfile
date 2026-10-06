@@ -1,5 +1,7 @@
-# Usa una imagen con más dependencias preinstaladas
-FROM rocker/tidyverse:latest
+# Usa una imagen con más dependencias preinstaladas (R + tidyverse)
+# Version FIJA de R (4.6.1), la misma con la que se probo la app: con `latest`
+# un servidor nuevo podria construir con otro R y otros paquetes.
+FROM rocker/tidyverse:4.6.1
 
 # Establece el directorio de trabajo
 WORKDIR /app
