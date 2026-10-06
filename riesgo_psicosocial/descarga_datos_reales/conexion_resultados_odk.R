@@ -39,6 +39,13 @@ col_id <- "clave"
 
 
 
+# Codigo de salida del script, para quien lo llame (actualizar_datos.sh):
+#    0 = corrio bien y no habia envios nuevos
+#   10 = corrio bien e inserto envios nuevos -> hay que recalificar
+#    1 = fallo
+# Asi el que lo programa decide si corre conectar_bd.R sin tener que leer el log.
+estado_salida <- 0L
+
 # 3. Bloque Principal con Manejo de Errores y Control Anti-Duplicados
 tryCatch({
 
@@ -560,7 +567,8 @@ tryCatch({
       } else {
         dbWriteTable(con, name = tabla_db, value = empleados, overwrite = TRUE)
       }
-      
+      estado_salida <- 10L
+
       cat("\n================================================================\n")
       cat("[INFO] Sincronizacion completada con exito.\n")
       cat(sprintf("Registros nuevos insertados: %d\n", nrow(empleados)))
@@ -585,10 +593,14 @@ tryCatch({
   }
   
 }, error = function(e) {
-  
+
+  estado_salida <<- 1L
   cat("\n================================================================\n")
   cat("[ERROR] Hubo un problema al descargar o actualizar los datos.\n")
   cat(sprintf("Detalle del fallo: %s\n", e$message))
   cat(sprintf("Fecha y hora del error: %s\n", Sys.time()))
   cat("================================================================\n\n")
 })
+
+# Solo al correr con Rscript: en RStudio, quit() cerraria la sesion.
+if (!interactive()) quit(save = "no", status = estado_salida)

@@ -25,3 +25,6 @@ descarga_datos_reales/logs_conexion.txt
 
 # --- Metadatos de Windows al copiar a WSL ---
 *:Zone.Identifier
+# Control interno de actualizar_datos.sh
+**/descarga_datos_reales/.calificacion_pendiente
+**/descarga_datos_reales/.actualizar_datos.lock

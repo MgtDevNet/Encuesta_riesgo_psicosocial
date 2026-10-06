@@ -155,8 +155,32 @@ server <- function(input, output, session) {
   # Estado central compartido por todos los módulos.
   r <- reactiveValues(
     usuario    = NULL, # ficha de sesión; la publica mod_auth
-    citaciones = 0     # sube cada vez que mod_citaciones reemplaza la agenda
+    citaciones = 0,    # sube cada vez que mod_citaciones reemplaza la agenda
+    respuestas = 0     # sube cada vez que conectar_bd.R reescribe las respuestas
   )
+
+  # Las respuestas las reescribe conectar_bd.R desde fuera de la app (el cron de
+  # actualizar_datos.sh), y nada le avisa a una sesion abierta. Cada minuto se
+  # mira si public.respuestas_procesadas cambio y, si cambio, se sube
+  # r$respuestas para que el avance se rehaga sin recargar la pagina.
+  #
+  # `xmin` es la transaccion que escribio cada fila: como conectar_bd.R borra y
+  # vuelve a crear la tabla, cambia en cada carga aunque el numero de filas sea
+  # el mismo. La consulta cuesta poco (una tabla de miles de filas, una vez por
+  # minuto y por sesion) y si la tabla no esta --base a medio preparar-- no pasa
+  # nada: devuelve NULL y se vuelve a mirar al minuto siguiente.
+  respuestas_firma <- reactivePoll(
+    60 * 1000, session,
+    checkFunc = function() tryCatch(
+      db_get("SELECT count(*) AS n, max(xmin::text::bigint) AS x
+                FROM public.respuestas_procesadas"),
+      error = function(e) NULL),
+    valueFunc = function() tryCatch(
+      db_get("SELECT count(*) AS n, max(xmin::text::bigint) AS x
+                FROM public.respuestas_procesadas"),
+      error = function(e) NULL))
+  observeEvent(respuestas_firma(), r$respuestas <- isolate(r$respuestas) + 1,
+               ignoreInit = TRUE)
 
   # Estado de la base: se evalúa una vez por sesión.
   estado_bd <- local({

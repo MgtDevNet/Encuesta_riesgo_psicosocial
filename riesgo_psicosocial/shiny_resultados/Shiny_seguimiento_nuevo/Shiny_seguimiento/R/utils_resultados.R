@@ -423,14 +423,14 @@ res_hay_datos <- function() {
   n <- tryCatch(
     db_get("SELECT count(*) AS n
               FROM information_schema.columns
-             WHERE table_schema = 'seguimiento'
-               AND table_name   = 'respuestas'
+             WHERE table_schema = 'public'
+               AND table_name   = 'respuestas_procesadas'
                AND column_name LIKE 'clas\\_%'")$n,
     error = function(e) 0)
   isTRUE(as.numeric(n) > 0)
 }
 
-# TRUE si seguimiento.respuestas tiene esa columna.
+# TRUE si public.respuestas_procesadas tiene esa columna.
 res_hay_columna <- function(col) {
   n <- tryCatch(
     db_get("SELECT count(*) AS n

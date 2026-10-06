@@ -949,8 +949,8 @@ seg_sql_acepta <- function(alias = "rr") {
   if (is.null(.seg$acepta)) {
     .seg$acepta <- tryCatch(
       nrow(db_get("SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = 'seguimiento'
-                      AND table_name   = 'respuestas'
+                    WHERE table_schema = 'public'
+                      AND table_name   = 'respuestas_procesadas'
                       AND column_name  = 'acepta'")) > 0,
       error = function(e) FALSE)
   }

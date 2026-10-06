@@ -1543,8 +1543,8 @@ bd_exec("BEGIN")
 # entera se detiene. Se borra aqui, explicitamente y dentro de la misma
 # transaccion, en vez de poner CASCADE: CASCADE se llevaria por delante
 # cualquier otra vista que alguien haya creado sobre `respuestas` sin decirlo.
-# La vuelve a crear seg_init_db(), que corre al arrancar la app y que
-# scripts/preparar_bd.R llama otra vez justo despues de este script.
+# Se vuelve a crear mas abajo, dentro de esta misma transaccion: quien consulte
+# la base mientras corre la carga nunca ve la vista desaparecida.
 bd_exec("DROP VIEW IF EXISTS seguimiento.estado_persona")
 
 bd_exec("DROP TABLE IF EXISTS public.respuestas_procesadas")
@@ -1586,6 +1586,21 @@ bd_exec("UPDATE public.respuestas_procesadas SET duracion_min = round(duracion_m
 
 # La app cruza respuestas con marco por id_anonimizado en cada consulta.
 bd_exec("CREATE INDEX idx_resp_id ON public.respuestas_procesadas (id_anonimizado)")
+
+# La vista que se borro arriba. Se usa la MISMA definicion de la app
+# (seg_crear_vista_estado() en R/utils_seguimiento.R) para no tener dos copias
+# del SQL que se puedan desalinear. Ese archivo habla con la base por
+# db_get()/db_exec() --el pool de la app--, asi que se carga en un entorno
+# aparte donde esas dos funciones apuntan a la conexion de este script, que es
+# la que tiene abierta la transaccion.
+vista <- new.env()
+vista$db_get  <- bd_get
+vista$db_exec <- bd_exec
+sys.source("R/utils_seguimiento.R", envir = vista, keep.source = FALSE)
+if (!isTRUE(vista$seg_crear_vista_estado())) {
+  cat("AVISO: seguimiento.estado_persona no se creo (faltan seguimiento.contactos",
+      "o seguimiento.citaciones); la app la creara al arrancar.\n")
+}
 
 bd_exec("COMMIT")
 

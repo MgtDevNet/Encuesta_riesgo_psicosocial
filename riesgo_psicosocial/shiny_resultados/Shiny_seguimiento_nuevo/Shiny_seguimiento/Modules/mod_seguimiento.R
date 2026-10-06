@@ -201,6 +201,8 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       # Una agenda nueva cargada desde la pestana de citaciones rehace el
       # grafico y los citados sin recargar la pagina (ver mod_citaciones).
       r$citaciones
+      # Igual con las respuestas nuevas que deja conectar_bd.R (ver app.R).
+      r$respuestas
       # Cerrar o reabrir un caso mueve "Faltan" (ver seg_sql_cierre()): sin
       # esto, el listado y los cajones no lo verian hasta recargar la pagina.
       recarga_cto()
@@ -359,6 +361,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
 
     dias_citados <- reactive({
       r$citaciones
+      r$respuestas
       seg_dias_citados(input$sedes, input$tipos)
     })
 
@@ -398,6 +401,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       dia <- dia_actual()
       req(dia)
       r$citaciones
+      r$respuestas
       # Tambien cuando se registra un contacto: la columna "Ultimo contacto" de
       # este recuadro sale de la bitacora, y sin esta dependencia seguia
       # diciendo "Sin contactar" hasta recargar la pagina. `recarga_cto` se
@@ -652,6 +656,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     detalle_dat <- reactive({
       dep <- seleccionada()
       req(dep)
+      r$respuestas
       seg_detalle(dep)
     })
 
@@ -683,6 +688,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       dep <- seleccionada()
       req(dep)
       r$citaciones
+      r$respuestas
       seg_personas(dep)
     })
 
