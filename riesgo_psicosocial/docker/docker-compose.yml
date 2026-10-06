@@ -76,7 +76,7 @@ services:
     # Volúmenes: sincroniza carpeta de logs (opcional)
     volumes:
       - ./logs:/app/logs
-      
+      - ../descarga_datos_reales:/descarga:ro      
 
     # Red personalizada (para comunicarse con PostgreSQL)
     networks:

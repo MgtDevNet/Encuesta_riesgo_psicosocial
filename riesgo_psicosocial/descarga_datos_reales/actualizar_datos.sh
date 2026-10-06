@@ -7,10 +7,12 @@
 #   1. conexion_resultados_odk.R  ODK -> public.odk_respuestas_intento_2
 #   2. conectar_bd.R              -> public.respuestas_procesadas (lo que lee la app)
 #
-# El paso 2 corre DENTRO del contenedor de la Shiny: asi usa exactamente el
-# mismo codigo, diccionarios y paquetes que la app, y este equipo no necesita
-# tenerlos instalados. Solo corre si el paso 1 inserto envios nuevos (codigo de
-# salida 10), o si una calificacion anterior quedo pendiente porque fallo.
+# Los dos pasos corren DENTRO del contenedor de la Shiny: asi usan exactamente
+# el mismo R y los mismos paquetes que la app, y este equipo solo necesita
+# Docker, sin instalar R. Esta carpeta se monta en el contenedor como /descarga
+# (ver docker-compose.yml). El paso 2 solo corre si el paso 1 inserto envios
+# nuevos (codigo de salida 10), o si una calificacion anterior quedo pendiente
+# porque fallo.
 #
 # Uso en el crontab (cada 15 minutos):
 #   */15 * * * * /bin/bash /ruta/a/descarga_datos_reales/actualizar_datos.sh >> /ruta/a/descarga_datos_reales/logs_conexion.txt 2>&1
@@ -40,10 +42,22 @@ fi
 
 [ "${1:-}" = "--calificar" ] && touch "$PENDIENTE"
 
+if ! docker inspect -f '{{.State.Running}}' "$CONTENEDOR" 2>/dev/null | grep -q true; then
+  log "ERROR: el contenedor $CONTENEDOR no esta corriendo; no se puede descargar ni calificar."
+  exit 1
+fi
+
 # --- 1. Descarga de ODK -------------------------------------------------------
 log "Descargando envios de ODK..."
-Rscript "$DIR/conexion_resultados_odk.R"
+docker exec "$CONTENEDOR" Rscript /descarga/conexion_resultados_odk.R
 codigo=$?
+
+# 126/127 = docker no pudo ejecutar el script: casi siempre es que el contenedor
+# se creo antes de montar /descarga y hay que recrearlo.
+if [ "$codigo" = 126 ] || [ "$codigo" = 127 ] || \
+   ! docker exec "$CONTENEDOR" test -f /descarga/conexion_resultados_odk.R; then
+  log "ERROR: el contenedor no ve /descarga. Recreelo: docker compose up -d shiny (desde docker/)."
+fi
 
 case "$codigo" in
   0)  log "Sin envios nuevos." ;;
@@ -56,10 +70,6 @@ esac
 # La marca de pendiente se borra solo cuando conectar_bd.R termina bien: si
 # falla, la proxima corrida lo vuelve a intentar aunque ODK no traiga nada nuevo.
 if [ -f "$PENDIENTE" ]; then
-  if ! docker inspect -f '{{.State.Running}}' "$CONTENEDOR" 2>/dev/null | grep -q true; then
-    log "ERROR: el contenedor $CONTENEDOR no esta corriendo; la calificacion queda pendiente."
-    exit 1
-  fi
   log "Calificando con conectar_bd.R en $CONTENEDOR..."
   if docker exec "$CONTENEDOR" sh -c "cd /app && Rscript conectar_bd.R"; then
     rm -f "$PENDIENTE"

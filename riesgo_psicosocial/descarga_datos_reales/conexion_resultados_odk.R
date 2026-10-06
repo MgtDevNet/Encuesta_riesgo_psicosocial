@@ -22,9 +22,20 @@ unnest_all <- function(df) {
 # se busca en la carpeta del script y en el directorio de trabajo.
 args_file   <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE))
 dir_script  <- if (length(args_file) == 1) dirname(normalizePath(args_file)) else getwd()
+
+# Las PG_* que ya trae el entorno mandan sobre las del archivo. Dentro del
+# contenedor de la Shiny (como lo corre actualizar_datos.sh) docker-compose.yml
+# define PG_HOST=postgres, y el PG_HOST=localhost del .Renviron --pensado para
+# correr en WSL-- lo pisaria: dentro del contenedor, localhost es el propio
+# contenedor y no la base. Fuera de Docker no hay PG_* en el entorno y se usa
+# el archivo como siempre.
+pg_entorno <- Sys.getenv(c("PG_HOST", "PG_PORT", "PG_DB", "PG_USER", "PG_PASSWORD"),
+                         unset = NA)
 for (f in unique(c(file.path(dir_script, ".Renviron"), ".Renviron"))) {
   if (file.exists(f)) readRenviron(f)
 }
+pg_entorno <- pg_entorno[!is.na(pg_entorno)]
+if (length(pg_entorno)) do.call(Sys.setenv, as.list(pg_entorno))
 
 usr <- Sys.getenv("ODK_USER")
 psw <- Sys.getenv("ODK_PASSWORD")
