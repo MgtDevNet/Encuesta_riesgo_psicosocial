@@ -1,9 +1,10 @@
 # 📋 Instrucciones para ejecutar la aplicación Shiny con Docker
 
-Esta guía tiene dos partes:
+Esta guía tiene tres partes:
 
 - **Parte 1 — Quien entrega el proyecto:** saca una copia de la base de datos y entrega la carpeta.
 - **Parte 2 — Quien lo recibe:** instala Docker, carga los datos y levanta la aplicación.
+- **Parte 3 — Montarla en la nube:** qué archivos subir a mano y cómo dejarla en un servidor Linux.
 
 La aplicación son dos contenedores que corren en el computador de cada persona:
 
@@ -226,6 +227,116 @@ bash actualizar_datos.sh --calificar   # además recalifica todo aunque no haya 
 > ⚠️ En WSL el cron solo corre mientras WSL esté abierto (deja una ventana de Ubuntu abierta o
 > usa `iniciar_wsl.bat`). La dirección de ODK por defecto es una URL gratuita de ngrok, que
 > cambia cada vez que ngrok se reinicia: si cambia, ponla en `ODK_URL` dentro del `.Renviron`.
+
+---
+
+# PARTE 3 — Montar la aplicación en la nube (servidor Linux)
+
+El código llega al servidor con `git clone`. Los **datos y las credenciales NO están en git** y hay
+que llevarlos a mano. Todo lo demás (app, diccionarios, scripts, Docker) ya viene en el repositorio.
+
+## 📤 Qué hay que subir a mano
+
+| Archivo | Dónde va en el servidor | ¿Obligatorio? | Cómo |
+|---|---|---|---|
+| `backups/bd.dump` | `riesgo_psicosocial/backups/` | **Sí**: son todos los datos (marco, respuestas, usuarios, citaciones, contactos, metas) | Sacar una copia nueva (Parte 1, paso 1) y subirla con `scp` |
+| `descarga_datos_reales/.Renviron` | `riesgo_psicosocial/descarga_datos_reales/` | **Sí**, si el servidor descarga de ODK: tiene `ODK_USER`, `ODK_PASSWORD` (y `ODK_URL` si cambió) | Subirlo con `scp` |
+| `docker/.env` | `riesgo_psicosocial/docker/` | **Sí** | **NO se copia**: se crea en el servidor desde `.env.example`, con una contraseña nueva |
+| `marco.xlsx` | `shiny_resultados/.../Shiny_seguimiento/` | No: el marco ya viene dentro de `bd.dump`. Solo si se va a recargar el marco desde el Excel | Subirlo con `scp` y reconstruir la Shiny |
+
+**No hace falta subir:** `respaldos/`, `*.bak`, `Simulacion_respuestas_ODK.csv`, `.Renviron.local`,
+ni los `logs`. La app no los usa.
+
+> 🔒 `bd.dump` y `.Renviron` tienen datos personales y contraseñas: súbelos directo al servidor
+> (`scp`), nunca por git, chat o correo, y borra `bd.dump` del servidor cuando termine la carga.
+
+## 🚀 Pasos
+
+**1. Crear el servidor** (en la consola de la nube):
+- Ubuntu 22.04 o 24.04, mínimo **2 CPU y 4 GB de RAM** (con menos, construir la imagen de R suele
+  fallar) y 30 GB de disco.
+- Firewall: abrir solo **22** (SSH), **80** y **443** (web). **Nunca el 5432.**
+
+**2. Entrar e instalar Docker** (desde tu WSL):
+```bash
+ssh usuario@IP_DEL_SERVIDOR
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+sudo timedatectl set-timezone America/Bogota
+exit
+```
+Vuelve a entrar con `ssh` para que tome el permiso de Docker.
+
+**3. Traer el código:**
+```bash
+git clone https://github.com/MgtDevNet/Encuesta_riesgo_psicosocial.git ~/proyecto
+cd ~/proyecto/riesgo_psicosocial
+mkdir -p backups
+```
+(Si el repositorio es privado, GitHub pide un *token personal* en vez de la contraseña.)
+
+**4. Subir los archivos manuales** — desde **tu computador**, en otra terminal:
+```bash
+scp backups/bd.dump usuario@IP_DEL_SERVIDOR:~/proyecto/riesgo_psicosocial/backups/
+scp descarga_datos_reales/.Renviron usuario@IP_DEL_SERVIDOR:~/proyecto/riesgo_psicosocial/descarga_datos_reales/
+```
+
+**5. Crear `docker/.env` con una contraseña nueva** — de vuelta en el servidor:
+```bash
+cd ~/proyecto/riesgo_psicosocial/docker
+cp .env.example .env
+sed -i "s|^PG_PASSWORD=.*|PG_PASSWORD=$(openssl rand -hex 24)|" .env
+```
+Así el `123456` de los equipos locales no sirve en el servidor. No hace falta anotarla: la app y la
+descarga la leen de este archivo.
+
+**6. Base y datos** (igual que la Parte 2, pasos 2 y 3):
+```bash
+docker compose up -d postgres
+docker cp ../backups/bd.dump riesgo_psicosocial_postgres:/tmp/bd.dump
+docker exec riesgo_psicosocial_postgres pg_restore -U erps_user -d riesgo_psicosocial --no-owner /tmp/bd.dump
+docker exec riesgo_psicosocial_postgres psql -U erps_user -d riesgo_psicosocial -c "SELECT count(*) FROM seguimiento.marco;"
+rm ../backups/bd.dump
+```
+
+**7. Levantar la Shiny:**
+```bash
+docker compose up -d --build shiny
+```
+
+**8. HTTPS con Caddy** (las contraseñas de la app no deben viajar sin cifrar). Necesitas un dominio
+o subdominio apuntando a la IP del servidor (registro tipo A):
+```bash
+sudo apt install -y caddy
+echo 'psicosocial.tudominio.com {
+    reverse_proxy localhost:7788
+}' | sudo tee /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+Se entra por `https://psicosocial.tudominio.com`. El 7788 ya escucha solo en `127.0.0.1`, así que
+desde internet solo se llega por HTTPS.
+
+**9. Descarga automática de ODK** (`crontab -e`; cron ya está encendido en el servidor):
+```
+*/15 * * * * /bin/bash /home/usuario/proyecto/riesgo_psicosocial/descarga_datos_reales/actualizar_datos.sh >> /home/usuario/proyecto/riesgo_psicosocial/descarga_datos_reales/logs_conexion.txt 2>&1
+```
+Pruébala antes a mano con `bash ~/proyecto/riesgo_psicosocial/descarga_datos_reales/actualizar_datos.sh`.
+
+**10. Respaldo diario** (`crontab -e`, después de `mkdir -p ~/backups`):
+```
+0 2 * * * docker exec riesgo_psicosocial_postgres pg_dump -U erps_user -d riesgo_psicosocial -Fc -f /tmp/bd.dump && docker cp riesgo_psicosocial_postgres:/tmp/bd.dump /home/usuario/backups/bd_$(date +\%F).dump
+```
+De vez en cuando descarga una copia fuera del servidor: si se pierde el servidor, se pierden sus
+respaldos.
+
+> ⚠️ Desde que la app esté en la nube, **la base del servidor es la oficial**. Las de los
+> computadores locales pasan a ser copias de prueba: lo que se cargue en ellas no llega a la nube.
+
+**Actualizar la app después** (cuando haya cambios nuevos en GitHub):
+```bash
+cd ~/proyecto && git pull
+cd riesgo_psicosocial/docker && docker compose up -d --build shiny
+```
 
 ---
 
