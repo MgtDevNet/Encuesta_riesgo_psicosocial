@@ -322,9 +322,10 @@ desde internet solo se llega por HTTPS.
 ```
 Pruébala antes a mano con `bash ~/proyecto/riesgo_psicosocial/descarga_datos_reales/actualizar_datos.sh`.
 
-**10. Respaldo diario** (`crontab -e`, después de `mkdir -p ~/backups`):
+**10. Respaldo diario** con `docker/respaldar_bd.sh` (`crontab -e`; en un servidor que no se
+apaga puede ser de madrugada):
 ```
-0 2 * * * docker exec riesgo_psicosocial_postgres pg_dump -U erps_user -d riesgo_psicosocial -Fc -f /tmp/bd.dump && docker cp riesgo_psicosocial_postgres:/tmp/bd.dump /home/usuario/backups/bd_$(date +\%F).dump
+0 2 * * * /bin/bash /home/usuario/proyecto/riesgo_psicosocial/docker/respaldar_bd.sh >> /home/usuario/proyecto/riesgo_psicosocial/backups/respaldos.log 2>&1
 ```
 De vez en cuando descarga una copia fuera del servidor: si se pierde el servidor, se pierden sus
 respaldos.
@@ -391,6 +392,20 @@ docker exec -it riesgo_psicosocial_shiny Rscript /app/scripts/gestionar_usuarios
 docker exec riesgo_psicosocial_postgres pg_dump -U erps_user -d riesgo_psicosocial -Fc -f /tmp/bd.dump
 docker cp riesgo_psicosocial_postgres:/tmp/bd.dump ./backups/bd.dump
 ```
+
+**Respaldos automáticos** con `docker/respaldar_bd.sh`: saca una copia con fecha
+(`backups/bd_AAAA-MM-DD_HHMM.dump`), comprueba que se pueda leer y borra las de más de 30 días.
+A mano, desde Ubuntu (WSL) o un servidor Linux:
+```bash
+bash /ruta/a/riesgo_psicosocial/docker/respaldar_bd.sh
+```
+En el cron (`crontab -e`), a las 12:30 y 17:30, cuando el equipo suele estar encendido:
+```
+30 12,17 * * * /bin/bash /ruta/a/riesgo_psicosocial/docker/respaldar_bd.sh >> /ruta/a/riesgo_psicosocial/backups/respaldos.log 2>&1
+```
+Para restaurar una de esas copias, igual que `bd.dump` (Parte 2, paso 3), cambiando el nombre
+del archivo. Guarda de vez en cuando la más reciente **fuera del equipo**, en un almacenamiento
+institucional con acceso restringido: tiene datos personales.
 
 **Recalificar las respuestas** (reescribe `public.respuestas_procesadas` desde
 `public.odk_respuestas_intento_2`; la Shiny lo ve sola en menos de un minuto):
