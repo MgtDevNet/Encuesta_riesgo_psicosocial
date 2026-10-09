@@ -97,12 +97,17 @@ tryCatch({
   }
   
   # Construir URL y consultar ODK
-  # La direccion del formulario en ODK Central. Se puede cambiar sin tocar el
-  # codigo con ODK_URL en el .Renviron (la de ngrok cambia cada vez que ngrok se
-  # reinicia); si no esta definida, se usa esta.
-  url_base <- Sys.getenv(
-    "ODK_URL",
-    "https://roman-april-gigahertz.ngrok-free.dev/v1/projects/1/forms/riesgo_psicosocial2.svc/Submissions")
+  # La direccion del PROYECTO en ODK Central viene de ODK_URL en el .Renviron:
+  #   ODK_URL=https://roman-april-gigahertz.ngrok-free.dev/v1/projects/1
+  # Cuando ngrok cambie de direccion, solo se cambia esa linea. Aqui se le pega
+  # la parte fija del formulario. Da igual si ODK_URL termina o no en "/".
+  odk_url <- sub("/+$", "", Sys.getenv("ODK_URL"))
+  if (!nzchar(odk_url)) {
+    stop("Falta ODK_URL en ", file.path(dir_script, ".Renviron"),
+         " (ej.: ODK_URL=https://xxxx.ngrok-free.dev/v1/projects/1)")
+  }
+  url_base <- paste0(odk_url, "/forms/riesgo_psicosocial.svc/Submissions")
+  
   url_filtro <- paste0("?$filter=__system/reviewState%20ne%20'rejected'", filtro_fecha)
   
   response <- httr::RETRY(
