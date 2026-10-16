@@ -214,7 +214,7 @@ cto_resumen_dependencia <- function(dependencia) {
            (array_agg(c.medio_otro ORDER BY c.fecha DESC, c.id DESC))[1] AS ultimo_medio_otro,
            (array_agg(c.resultado  ORDER BY c.fecha DESC, c.id DESC))[1] AS resultado
       FROM seguimiento.contactos c
-      JOIN seguimiento.marco m USING (id_anonimizado)
+      JOIN seguimiento.marco_completo m USING (id_anonimizado)
      WHERE m.dependencia = $1
      GROUP BY c.id_anonimizado",
     params = list(dependencia))

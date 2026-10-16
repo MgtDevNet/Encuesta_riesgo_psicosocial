@@ -52,7 +52,7 @@ local({
 # cambiar custom.css o grafico.js hay que subirlo (era el `?v=N` de antes).
 DEP_ESTATICOS <- htmltools::htmlDependency(
   name       = "seguimiento-estaticos",
-  version    = "62",
+  version    = "63",
   src        = c(file = normalizePath("www")),
   stylesheet = "custom.css",
   script     = "grafico.js"
@@ -169,15 +169,20 @@ server <- function(input, output, session) {
   # el mismo. La consulta cuesta poco (una tabla de miles de filas, una vez por
   # minuto y por sesion) y si la tabla no esta --base a medio preparar-- no pasa
   # nada: devuelve NULL y se vuelve a mirar al minuto siguiente.
+  # Tambien cuenta a los empleados fuera del marco ya completados: completarlos
+  # desde otra sesion cambia el avance, aunque las respuestas sean las mismas.
+  SEG_FIRMA_RESPUESTAS <- "
+    SELECT (SELECT count(*) FROM public.respuestas_procesadas) AS n,
+           (SELECT max(xmin::text::bigint) FROM public.respuestas_procesadas) AS x,
+           (SELECT count(*) FROM seguimiento.empleados_no_registrados
+             WHERE completado_en IS NOT NULL) AS nr"
   respuestas_firma <- reactivePoll(
     60 * 1000, session,
     checkFunc = function() tryCatch(
-      db_get("SELECT count(*) AS n, max(xmin::text::bigint) AS x
-                FROM public.respuestas_procesadas"),
+      db_get(SEG_FIRMA_RESPUESTAS),
       error = function(e) NULL),
     valueFunc = function() tryCatch(
-      db_get("SELECT count(*) AS n, max(xmin::text::bigint) AS x
-                FROM public.respuestas_procesadas"),
+      db_get(SEG_FIRMA_RESPUESTAS),
       error = function(e) NULL))
   observeEvent(respuestas_firma(), r$respuestas <- isolate(r$respuestas) + 1,
                ignoreInit = TRUE)

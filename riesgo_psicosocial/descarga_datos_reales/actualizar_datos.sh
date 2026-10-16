@@ -4,7 +4,7 @@
 # Lo que corre el cron: trae de ODK los envios nuevos y, si llego alguno, los
 # califica para que la Shiny los muestre.
 #
-#   1. conexion_resultados_odk.R  ODK -> public.odk_respuestas_intento_2
+#   1. conexion_resultados_odk.R  ODK -> public.odk_respuestas_<etapa> (ETAPA en docker/.env)
 #   2. conectar_bd.R              -> public.respuestas_procesadas (lo que lee la app)
 #
 # Los dos pasos corren DENTRO del contenedor de la Shiny: asi usan exactamente

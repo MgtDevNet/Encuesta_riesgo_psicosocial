@@ -2,7 +2,10 @@
 # utils_seguimiento.R
 # Consultas del avance de la aplicación por dependencia. Sin nada de UI.
 #
-# Población elegible = personas del marco con estado_vinculacion 'Activo'.
+# Población elegible = personas del marco con estado_vinculacion 'Activo'. El
+# "marco" de las consultas es seguimiento.marco_completo: el oficial mas quien
+# respondio sin estar en el y ya tiene sus datos completos (ver
+# seg_crear_marco_completo()).
 # Planeado = meta editable por dependencia (tabla seguimiento.metas).
 # Encuestados = elegibles con al menos una respuesta registrada.
 # -----------------------------------------------------------------------------
@@ -14,36 +17,10 @@ SEG_MIN_N <- 7L
 
 # --- Arranque del esquema -----------------------------------------------------
 # Igual que auth_init_db() y cto_init_db(): crea lo que falte y no toca lo que
-# ya este. Aqui se declaran las DOS tablas que se cargan desde fuera --el marco
-# y el export de ODK-- para que en un equipo nuevo exista donde volcarlas antes
-# de haber corrido nada. seguimiento.respuestas no se crea aqui: la escribe
-# conectar_bd.R, que es quien sabe cuantas columnas de clasificacion tiene.
-
-# Las 326 columnas del formulario, en el mismo orden en que las manda ODK. Los
-# items van por bloque: forma A (con sus dos preguntas de filtro), forma B (con
-# la suya), extralaboral y estres. Las trece ultimas son la caracterizacion
-# laboral, que se agrego despues del primer despliegue y por eso va al final.
-SEG_ODK_COLUMNAS <- c(
-  "submission_date timestamptz", "inicio timestamptz", "fin timestamptz",
-  "duracion_min numeric", "deviceid text", "clave text PRIMARY KEY",
-  "id_anonimizado text", "dependencia text", "sede_seccional text",
-  "tipo_vinculacion text", "nivel_empleo text", "forma_cuestionario text",
-  "nombre text", "sexo smallint", "nacimiento timestamptz",
-  "estado_civil smallint", "nivel_academico smallint", "ocupacion text",
-  "departamento text", "ciudad text", "estrato smallint", "vivienda smallint",
-  "dependientes smallint",
-  "ila_val1 smallint", "ila_val2 smallint", paste0("ila_p", 1:123, " smallint"),
-  "ilb_val1 smallint",                      paste0("ilb_p", 1:97,  " smallint"),
-  paste0("el_p", 1:31, " smallint"),
-  paste0("ee_p", 1:31, " smallint"),
-  "consentimiento smallint", "cedula text", "cal_nombre text",
-  "cal_naci timestamptz", "cal_sexo smallint",
-  "departamento_lab text", "ciudad_lab text",
-  "anos_lab smallint", "anos_lab_num smallint",
-  "cargo text", "tipo_cargo smallint",
-  "anos_cargo smallint", "anos_cargo_num smallint",
-  "area text", "tipo_contrato smallint", "horas smallint",
-  "tipo_salario smallint", "form_intra smallint")
+# ya este. Aqui se declara el marco, que se carga desde fuera, para que en un
+# equipo nuevo exista donde volcarlo antes de haber corrido nada. Las respuestas
+# de ODK no se crean aqui: public.odk_respuestas_<etapa> la crea la descarga
+# (conexion_resultados_odk.R) y public.respuestas_procesadas, conectar_bd.R.
 
 seg_init_db <- function() {
   db_exec("CREATE SCHEMA IF NOT EXISTS seguimiento")
@@ -89,19 +66,6 @@ seg_init_db <- function() {
   }
   db_exec("CREATE INDEX IF NOT EXISTS idx_marco_dep
              ON seguimiento.marco (dependencia)")
-
-  # El formulario crudo, tal como sale de ODK. Es el origen del que se deriva
-  # seguimiento.respuestas, y ademas el modulo de resultados lo consulta
-  # directamente para la caracterizacion de la persona (sexo, estrato, nivel
-  # academico y fecha de nacimiento).
-  db_exec(sprintf("
-    CREATE TABLE IF NOT EXISTS seguimiento.respuestas_odk (
-      %s
-    )", paste(SEG_ODK_COLUMNAS, collapse = ",\n      ")))
-  db_exec("CREATE INDEX IF NOT EXISTS idx_odk_id
-             ON seguimiento.respuestas_odk (id_anonimizado)")
-  db_exec("CREATE INDEX IF NOT EXISTS idx_odk_dep
-             ON seguimiento.respuestas_odk (dependencia)")
 
   # Las metas son lo unico que se edita desde el lado del seguimiento, asi que
   # esta tabla nunca se reescribe: solo se le agregan las dependencias nuevas.
@@ -261,6 +225,229 @@ seg_init_db <- function() {
 }
 
 
+# --- empleados que respondieron sin estar en el marco -------------------------
+# El formulario de ODK ya no exige estar en el marco: quien no esta contesta
+# igual, pero le faltan los datos que la app saca del marco (dependencia, tipo
+# de vinculacion y nivel del empleo). Sin ellos no hay donde contarlo.
+#
+# seguimiento.empleados_no_registrados guarda a TODAS esas personas, con o sin
+# datos, para poder identificarlas despues --si se decide sacarlas, ahi estan--.
+# Los datos los llena a mano cualquier usuario desde la pestana de avance, y una
+# vez completos quedan FIJOS: el UPDATE solo toca filas sin completar.
+#
+# seguimiento.marco_completo es el marco oficial MAS las personas de esa tabla
+# que ya tienen los tres datos. Es lo que lee la app en lugar del marco: asi
+# cuentan como elegibles y encuestados de su dependencia y entran a Resultados
+# sin tocar conectar_bd.R, que ya las califica (lee todo ODK y no cruza con el
+# marco). El marco oficial no se toca, y recargarlo no se lleva lo llenado.
+# Si alguien de esta tabla aparece despues en el marco, manda el marco.
+#
+# Las columnas de la vista son EXACTAMENTE las del marco y en su orden, para
+# que valga como reemplazo en cualquier consulta. Si el marco gana columnas la
+# vista se rehace (y con ella estado_persona, que depende de esta y la vuelve a
+# crear seg_crear_vista_estado() justo despues).
+#
+# Cada fila lleva la ETAPA en que respondio (piloto o reales): la misma cedula
+# puede estar en las dos, y la vista y la lista solo toman la etapa activa.
+
+# La Unidad no se pregunta: sale de la dependencia, igual que en el marco.
+SEG_NR_CAMPOS <- c(dependencia      = "Dependencia",
+                   tipo_vinculacion = "Tipo de vinculación",
+                   nivel_empleo     = "Nivel del empleo")
+
+# Etapa de la encuesta: ETAPA en docker/.env, que docker-compose pasa al
+# contenedor. Decide de que tabla de ODK salen las respuestas
+# (public.odk_respuestas_piloto u odk_respuestas_reales) y que empleados no
+# registrados cuentan. conexion_resultados_odk.R y conectar_bd.R usan la misma
+# regla. Sin la variable, piloto.
+SEG_ETAPAS <- c("piloto", "reales")
+
+seg_etapa <- function() {
+  e <- tolower(trimws(Sys.getenv("ETAPA")))
+  if (!nzchar(e)) e <- "piloto"
+  if (!e %in% SEG_ETAPAS) {
+    stop("ETAPA debe ser 'piloto' o 'reales' (esta en '", e, "').", call. = FALSE)
+  }
+  e
+}
+
+seg_tabla_odk <- function() paste0("odk_respuestas_", seg_etapa())
+
+seg_crear_marco_completo <- function() {
+  db_exec("
+    CREATE TABLE IF NOT EXISTS seguimiento.empleados_no_registrados (
+      id_anonimizado   text NOT NULL,
+      etapa            text NOT NULL,
+      nombre           text,
+      primer_envio     timestamptz,
+      detectado_en     timestamptz NOT NULL DEFAULT now(),
+      dependencia      text,
+      tipo_dependencia text,
+      tipo_vinculacion text,
+      nivel_empleo     text,
+      completado_por   text,
+      completado_en    timestamptz,
+      CONSTRAINT enr_completo CHECK (completado_en IS NULL OR (
+        dependencia IS NOT NULL AND tipo_vinculacion IS NOT NULL
+        AND nivel_empleo IS NOT NULL)),
+      PRIMARY KEY (id_anonimizado, etapa)
+    )")
+
+  # La primera version no tenia etapa y su llave era solo la cedula. Todo lo
+  # que tenia era del piloto.
+  sin_etapa <- !isTRUE(nrow(db_get("
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'seguimiento' AND table_name = 'empleados_no_registrados'
+       AND column_name = 'etapa'")) > 0)
+  if (sin_etapa) {
+    db_exec("ALTER TABLE seguimiento.empleados_no_registrados ADD COLUMN etapa text")
+    db_exec("UPDATE seguimiento.empleados_no_registrados SET etapa = 'piloto'")
+    db_exec("ALTER TABLE seguimiento.empleados_no_registrados
+               ALTER COLUMN etapa SET NOT NULL")
+    db_exec("ALTER TABLE seguimiento.empleados_no_registrados
+               DROP CONSTRAINT empleados_no_registrados_pkey")
+    db_exec("ALTER TABLE seguimiento.empleados_no_registrados
+               ADD PRIMARY KEY (id_anonimizado, etapa)")
+  }
+
+  cols <- db_get("
+    SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'seguimiento' AND table_name = 'marco'
+     ORDER BY ordinal_position")$column_name
+  if (length(cols) == 0) return(invisible(FALSE))
+
+  # De donde sale cada columna del marco para una persona de esta tabla; lo que
+  # no esta aqui queda en NULL. `Activo` porque respondio: si no, la dejaria
+  # fuera el filtro de elegibles que usa todo el modulo.
+  de_nr <- c(id_anonimizado     = "n.id_anonimizado",
+             identificacion     = "n.id_anonimizado",
+             nombre             = "n.nombre",
+             dependencia        = "n.dependencia",
+             tipo_dependencia   = "n.tipo_dependencia",
+             descripcion_unidad = "n.tipo_dependencia",
+             tipo_vinculacion   = "n.tipo_vinculacion",
+             nivel_empleo       = "n.nivel_empleo",
+             estado_vinculacion = "'Activo'")
+  expr <- ifelse(cols %in% names(de_nr), de_nr[cols], "NULL::text")
+
+  actual <- db_get("
+    SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'seguimiento' AND table_name = 'marco_completo'
+     ORDER BY ordinal_position")$column_name
+  if (length(actual) && !identical(actual, cols)) {
+    db_exec("DROP VIEW IF EXISTS seguimiento.estado_persona")
+    db_exec("DROP VIEW IF EXISTS seguimiento.marco_completo")
+  }
+
+  db_exec(sprintf("
+    CREATE OR REPLACE VIEW seguimiento.marco_completo AS
+    SELECT * FROM seguimiento.marco
+    UNION ALL
+    SELECT %s
+      FROM seguimiento.empleados_no_registrados n
+     WHERE n.completado_en IS NOT NULL
+       AND n.etapa = '%s'
+       AND NOT EXISTS (SELECT 1 FROM seguimiento.marco m
+                        WHERE m.id_anonimizado = n.id_anonimizado)",
+    paste(sprintf("%s AS %s", expr, cols), collapse = ",\n           "),
+    # Literal y no parametro: una vista no admite parametros. seg_etapa() solo
+    # devuelve uno de SEG_ETAPAS, asi que no hay nada que escapar. Como la vista
+    # se rehace en cada arranque, cambiar ETAPA la actualiza sola.
+    seg_etapa()))
+  invisible(TRUE)
+}
+
+# Da de alta en la tabla a quien respondio en ODK y no esta en el marco. Solo
+# agrega: una persona ya registrada --completa o no-- no se toca. El criterio es
+# no estar en el marco y no la pregunta empleado_registrado, para atrapar tambien
+# a quien dijo estar registrado pero escribio mal la cedula.
+seg_sincronizar_no_registrados <- function() {
+  tabla <- seg_tabla_odk()
+  hay <- isTRUE(nrow(db_get(
+    "SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = $1", params = list(tabla))) > 0)
+  if (!hay) return(invisible(0L))
+  invisible(db_exec(sprintf("
+    INSERT INTO seguimiento.empleados_no_registrados
+           (id_anonimizado, etapa, nombre, primer_envio)
+    SELECT o.id_anonimizado, $1,
+           (array_agg(o.nombre ORDER BY o.submission_date::timestamptz DESC))[1],
+           min(o.submission_date::timestamptz)
+      FROM public.%s o
+     WHERE o.id_anonimizado IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM seguimiento.marco m
+                        WHERE m.id_anonimizado = o.id_anonimizado)
+     GROUP BY o.id_anonimizado
+    ON CONFLICT (id_anonimizado, etapa) DO NOTHING", tabla),
+    params = list(seg_etapa())))
+}
+
+# La lista de la pestana, solo de la etapa activa: primero las que faltan por
+# completar. Quien ya entro al marco oficial sale de la lista (sigue en la
+# tabla).
+seg_no_registrados <- function() {
+  db_get("
+    SELECT n.*
+      FROM seguimiento.empleados_no_registrados n
+     WHERE n.etapa = $1
+       AND NOT EXISTS (SELECT 1 FROM seguimiento.marco m
+                        WHERE m.id_anonimizado = n.id_anonimizado)
+     ORDER BY n.completado_en IS NOT NULL, n.primer_envio, n.id_anonimizado",
+    params = list(seg_etapa()))
+}
+
+# Las categorias que ofrece el formulario: las mismas que trae el marco, para
+# que estas personas caigan en los mismos grupos que las demas. La unidad de
+# cada dependencia es la mas comun en el marco (algunas tienen mas de una).
+seg_opciones_no_registrados <- function() {
+  distintos <- function(col) sort(db_get(sprintf(
+    "SELECT DISTINCT %s AS v FROM seguimiento.marco WHERE %s IS NOT NULL", col, col))$v)
+  list(
+    dependencia      = db_get("
+      SELECT dependencia,
+             mode() WITHIN GROUP (ORDER BY tipo_dependencia) AS unidad
+        FROM seguimiento.marco
+       GROUP BY dependencia
+       ORDER BY dependencia"),
+    tipo_vinculacion = distintos("tipo_vinculacion"),
+    nivel_empleo     = distintos("nivel_empleo"))
+}
+
+# Guarda los tres datos y los deja fijos. Se valida contra el marco --no solo
+# en el formulario-- y el WHERE completado_en IS NULL impide pisar unos datos ya
+# guardados, aunque dos personas guarden a la vez.
+seg_completar_no_registrado <- function(id, dependencia, tipo_vinculacion,
+                                        nivel_empleo, usuario = NA_character_) {
+  valores <- list(dependencia = dependencia, tipo_vinculacion = tipo_vinculacion,
+                  nivel_empleo = nivel_empleo)
+  vacio <- vapply(valores, function(v) length(v) != 1 || is.na(v) || !nzchar(v), TRUE)
+  if (any(vacio)) {
+    stop("Faltan datos: ", paste(tolower(SEG_NR_CAMPOS[names(valores)[vacio]]),
+                                 collapse = ", "), ".", call. = FALSE)
+  }
+  op <- seg_opciones_no_registrados()
+  if (!dependencia %in% op$dependencia$dependencia ||
+      !tipo_vinculacion %in% op$tipo_vinculacion ||
+      !nivel_empleo %in% op$nivel_empleo) {
+    stop("Alguno de los valores no está entre las categorías del marco.", call. = FALSE)
+  }
+  unidad <- op$dependencia$unidad[match(dependencia, op$dependencia$dependencia)]
+
+  n <- db_exec("
+    UPDATE seguimiento.empleados_no_registrados
+       SET dependencia = $2, tipo_dependencia = $3, tipo_vinculacion = $4,
+           nivel_empleo = $5, completado_por = $6, completado_en = now()
+     WHERE id_anonimizado = $1 AND etapa = $7 AND completado_en IS NULL",
+    params = list(id, dependencia, unidad, tipo_vinculacion, nivel_empleo, usuario,
+                  seg_etapa()))
+  if (!isTRUE(n == 1)) {
+    stop("Los datos de esta persona ya estaban completos y quedaron fijos: ",
+         "no se cambiaron.", call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+
 # --- estado final de cada persona --------------------------------------------
 # Una fila por PERSONA del marco con las dos variables que resumen en que acabo
 # su caso: `encuestados` (booleana) y `resultado_final_persona` (categorica).
@@ -328,6 +515,11 @@ seg_init_db <- function() {
 # nueva no arrancaria. Se comprueba antes y se sale en silencio: preparar_bd.R
 # vuelve a llamar a seg_init_db() despues de derivar la tabla, y ahi si se crea.
 seg_crear_vista_estado <- function() {
+  # La vista de abajo lee de marco_completo: tiene que existir antes. Va primero
+  # y fuera del chequeo de tablas, porque el avance la necesita aunque todavia
+  # no haya respuestas calificadas.
+  seg_crear_marco_completo()
+
   hay <- function(tabla, esquema = "seguimiento") isTRUE(nrow(db_get(
     "SELECT 1 FROM information_schema.tables
       WHERE table_schema = $1 AND table_name = $2",
@@ -399,7 +591,7 @@ seg_crear_vista_estado <- function() {
              WHEN k.resultado = 'ausente'      THEN 'Rechazo ausente'
              ELSE 'Pendiente'
            END AS resultado_final_txt
-      FROM seguimiento.marco m
+      FROM seguimiento.marco_completo m
       LEFT JOIN env    e ON e.id_anonimizado = m.id_anonimizado
       LEFT JOIN cto    k ON k.id_anonimizado = m.id_anonimizado
       LEFT JOIN agenda a ON a.id_anonimizado = m.id_anonimizado", SEG_TZ))
@@ -433,7 +625,7 @@ seg_estado_personas <- function(solo_elegibles = TRUE) {
 #
 # `dependencias` es la lista ya resuelta por el listado, igual que en seg_serie()
 # y por la misma razon: el buscador filtra en R y nunca llega al SQL, asi que
-# pasarle sede y tipo dejaria esta tarjeta contando una poblacion distinta de la
+# pasarle la unidad dejaria esta tarjeta contando una poblacion distinta de la
 # que cuentan los indicadores de arriba. NULL o vacio = todas.
 seg_resumen_final <- function(dependencias = NULL, solo_elegibles = TRUE) {
   x <- db_get(sprintf("
@@ -490,13 +682,8 @@ seg_faltantes <- function() {
       "seguimiento.marco no tiene registros: cargue el marco muestral",
       "(Rscript scripts/preparar_bd.R --marco=<archivo.xlsx>)."))
 
-  if (!isTRUE(seg_conteo("seguimiento.respuestas_odk") > 0))
-    falta <- c(falta, paste(
-      "seguimiento.respuestas_odk no tiene registros: cargue el export de ODK",
-      "(Rscript scripts/preparar_bd.R --odk=<archivo.csv>)."))
-
-  # NA = la tabla no existe todavia. Cero filas con ODK cargado tambien es un
-  # problema, pero eso ya lo denuncia la linea de arriba.
+  # NA = la tabla no existe todavia. Con cero filas la app abre igual: al
+  # empezar una etapa todavia no ha respondido nadie.
   # if (is.na(seg_conteo("seguimiento.respuestas")))
   #   falta <- c(falta, paste(
   #     "falta seguimiento.respuestas, la tabla derivada que consulta la app:",
@@ -504,7 +691,7 @@ seg_faltantes <- function() {
   if (is.na(seg_conteo("public.respuestas_procesadas")))
     falta <- c(falta, paste(
       "falta public.respuestas_procesadas, la tabla derivada que consulta la app:",
-      "se genera con Rscript scripts/preparar_bd.R."))
+      "se genera con bash descarga_datos_reales/actualizar_datos.sh --calificar."))
 
   falta
 }
@@ -515,11 +702,6 @@ seg_hay_datos <- function() {
   n <- tryCatch(db_get("SELECT count(*) AS n FROM seguimiento.marco")$n,
                 error = function(e) 0)
   isTRUE(as.numeric(n) > 0)
-}
-
-seg_sedes <- function() {
-  sort(db_get("SELECT DISTINCT sede_seccional AS s FROM seguimiento.marco
-                WHERE sede_seccional IS NOT NULL")$s)
 }
 
 seg_tipos_dependencia <- function() {
@@ -577,8 +759,8 @@ seg_sql_cierre <- function() {
     paste0("'", CTO_CIERRES, "'", collapse = ", "))
 }
 
-# Una fila por dependencia con el avance. `sedes` y `tipos` son vectores de
-# filtro; NULL o vacío = sin filtrar.
+# Una fila por dependencia con el avance. `tipos` es el vector de filtro de
+# unidades; NULL o vacío = sin filtrar. (La sede se quito: ya no se usa.)
 #
 # La forma del cuestionario (A o B) es SEG_FORMA: la que la persona contesto en
 # ODK si ya respondio, y la del marco si no. Tiene que estar definida tambien
@@ -591,14 +773,12 @@ seg_sql_cierre <- function() {
 # perseguir. Es la misma regla de cto_aplicar(), asi que el "Faltan" del listado
 # y el de la pestana Personas del detalle dicen el mismo numero. El avance no
 # cambia: un caso cerrado no es un encuestado.
-seg_avance <- function(sedes = NULL, tipos = NULL) {
-  usar_sede <- length(sedes) > 0
+seg_avance <- function(tipos = NULL) {
   usar_tipo <- length(tipos) > 0
 
   a <- db_get(sprintf("
     WITH base AS (
       SELECT m.dependencia,
-             min(m.sede_seccional)  AS sede_seccional,
              min(m.tipo_dependencia) AS tipo_dependencia,
              (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'))::int AS elegibles,
              count(*)::int                                              AS total_marco,
@@ -617,15 +797,14 @@ seg_avance <- function(sedes = NULL, tipos = NULL) {
              (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'
                                  AND r.id_anonimizado IS NULL
                                  AND k.cerrado))::int                   AS cerrados
-        FROM seguimiento.marco m
+        FROM seguimiento.marco_completo m
         LEFT JOIN %2$s r ON m.id_anonimizado = r.id_anonimizado
         LEFT JOIN (%3$s) k ON m.id_anonimizado = k.id_anonimizado
         LEFT JOIN %4$s f ON m.id_anonimizado = f.id_anonimizado
-       WHERE ($1::boolean IS FALSE OR m.sede_seccional   = ANY(string_to_array($2, chr(1))))
-         AND ($3::boolean IS FALSE OR m.tipo_dependencia = ANY(string_to_array($4, chr(1))))
+       WHERE ($1::boolean IS FALSE OR m.tipo_dependencia = ANY(string_to_array($2, chr(1))))
        GROUP BY m.dependencia
     )
-    SELECT b.dependencia, b.sede_seccional, b.tipo_dependencia,
+    SELECT b.dependencia, b.tipo_dependencia,
            b.elegibles, b.total_marco, b.encuestados,
            b.elegibles_a, b.elegibles_b, b.encuestados_a, b.encuestados_b,
            b.cerrados,
@@ -640,7 +819,7 @@ seg_avance <- function(sedes = NULL, tipos = NULL) {
       LEFT JOIN seguimiento.metas mt ON mt.dependencia = b.dependencia
      ORDER BY b.dependencia", SEG_FORMA, SEG_RESPONDIO, seg_sql_cierre(),
      SEG_FORMA_ODK),
-    params = list(usar_sede, pg_lista(sedes), usar_tipo, pg_lista(tipos)))
+    params = list(usar_tipo, pg_lista(tipos)))
 
   repartir_formas(a)
 }
@@ -704,7 +883,6 @@ seg_guardar_meta <- function(dependencia, planeado, usuario = NA_character_,
 seg_detalle <- function(dependencia) {
   cab <- db_get(sprintf("
     SELECT m.dependencia,
-           min(m.sede_seccional)   AS sede_seccional,
            min(m.municipio)        AS municipio,
            min(m.tipo_dependencia) AS tipo_dependencia,
            min(m.nivel_jerarquico_dependencia) AS nivel_jerarquico,
@@ -716,7 +894,7 @@ seg_detalle <- function(dependencia) {
            (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'
                                AND r.id_anonimizado IS NULL
                                AND k.cerrado))::int                 AS cerrados
-      FROM seguimiento.marco m
+      FROM seguimiento.marco_completo m
       LEFT JOIN %s r ON m.id_anonimizado = r.id_anonimizado
       LEFT JOIN (%s) k ON m.id_anonimizado = k.id_anonimizado
      WHERE m.dependencia = $1
@@ -735,7 +913,7 @@ seg_detalle <- function(dependencia) {
              (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'))::int AS elegibles,
              (count(DISTINCT r.id_anonimizado) FILTER (
                WHERE m.estado_vinculacion = 'Activo'))::int           AS encuestados
-        FROM seguimiento.marco m
+        FROM seguimiento.marco_completo m
         LEFT JOIN %2$s r ON m.id_anonimizado = r.id_anonimizado
         LEFT JOIN %3$s f ON m.id_anonimizado = f.id_anonimizado
        WHERE m.dependencia = $1
@@ -749,7 +927,7 @@ seg_detalle <- function(dependencia) {
   #          min(r.submission_date)                      AS primera,
   #          max(r.submission_date)                      AS ultima
   #     FROM seguimiento.respuestas r
-  #     JOIN seguimiento.marco m USING (id_anonimizado)
+  #     JOIN seguimiento.marco_completo m USING (id_anonimizado)
   #    WHERE m.dependencia = $1", params = list(dependencia))
   campo <- db_get("
     SELECT count(*)::int                              AS n,
@@ -757,7 +935,7 @@ seg_detalle <- function(dependencia) {
            min(r.submission_date)                      AS primera,
            max(r.submission_date)                      AS ultima
       FROM public.respuestas_procesadas r
-      JOIN seguimiento.marco m ON m.id_anonimizado = r.id_anonimizado
+      JOIN seguimiento.marco_completo m ON m.id_anonimizado = r.id_anonimizado
      WHERE m.dependencia = $1", params = list(dependencia))
 
   # Misma definicion de acumulado que usa el grafico global: personas por su
@@ -832,7 +1010,7 @@ seg_personas <- function(dependencia) {
              WHEN r.acepta IS TRUE                               THEN 'efectiva'
              ELSE 'rechazo'
            END AS situacion
-      FROM seguimiento.marco m
+      FROM seguimiento.marco_completo m
       LEFT JOIN LATERAL (
         SELECT rr.clave, rr.forma_cuestionario, rr.submission_date,
                rr.duracion_min, %s AS acepta
@@ -863,13 +1041,12 @@ seg_personas <- function(dependencia) {
 #
 # Solo cuenta lo elegible --activos del marco, el denominador de todo el
 # modulo-- y solo dias cuya hora final ya paso: antes de eso nadie esta en mora.
-# `sedes` y `tipos` son los filtros de la barra de arriba.
+# `tipos` es el filtro de unidades de la barra de arriba.
 
-# Condicion de poblacion compartida por las dos consultas ($1..$4).
+# Condicion de poblacion compartida por las dos consultas ($1..$2).
 SEG_DIA_POBLACION <- "
   m.estado_vinculacion = 'Activo'
-  AND ($1::boolean IS FALSE OR m.sede_seccional  = ANY(string_to_array($2, chr(1))))
-  AND ($3::boolean IS FALSE OR m.tipo_dependencia = ANY(string_to_array($4, chr(1))))"
+  AND ($1::boolean IS FALSE OR m.tipo_dependencia = ANY(string_to_array($2, chr(1))))"
 
 # Sin ningun envio: cualquier respuesta con fecha cuenta, completa o no, porque
 # el recuadro pregunta quien no contesto, no quien contesto bien.
@@ -881,13 +1058,13 @@ SEG_DIA_SIN_ENVIO <- "
 
 # Un dia por fila, del mas reciente al mas antiguo: cuantas personas se citaron y
 # cuantas de ellas siguen sin responder. Es lo que rotula el selector de dia.
-seg_dias_citados <- function(sedes = NULL, tipos = NULL, ahora = seg_ahora()) {
+seg_dias_citados <- function(tipos = NULL, ahora = seg_ahora()) {
   db_get(sprintf("
     WITH cit AS (
       SELECT c.fecha, m.id_anonimizado, (%s) AS sin_envio
         FROM seguimiento.citaciones c
-        JOIN seguimiento.marco m USING (id_anonimizado)
-       WHERE c.fecha + c.hora_fin <= $5::timestamp AND %s
+        JOIN seguimiento.marco_completo m USING (id_anonimizado)
+       WHERE c.fecha + c.hora_fin <= $3::timestamp AND %s
     )
     SELECT fecha AS dia,
            count(DISTINCT id_anonimizado)::int AS citados,
@@ -895,27 +1072,25 @@ seg_dias_citados <- function(sedes = NULL, tipos = NULL, ahora = seg_ahora()) {
       FROM cit
      GROUP BY fecha
      ORDER BY fecha DESC", SEG_DIA_SIN_ENVIO, SEG_DIA_POBLACION),
-    params = list(length(sedes) > 0, pg_lista(sedes),
-                  length(tipos) > 0, pg_lista(tipos), ahora))
+    params = list(length(tipos) > 0, pg_lista(tipos), ahora))
 }
 
 # Las personas citadas en `dia` que siguen sin responder. Trae con que llamarlas:
 # donde trabajan, en que franja se las cito, cuantas veces se las ha citado en
 # total y como fue el ultimo contacto de la bitacora --para no repetir la llamada
 # que ya hizo otra persona--.
-seg_citados_dia <- function(dia, sedes = NULL, tipos = NULL, ahora = seg_ahora()) {
+seg_citados_dia <- function(dia, tipos = NULL, ahora = seg_ahora()) {
   db_get(sprintf("
     SELECT m.id_anonimizado,
            m.nombre,
            m.dependencia,
-           m.sede_seccional AS sede,
            m.tipo_vinculacion,
            string_agg(DISTINCT to_char(c.hora_inicio, 'HH24:MI') || '-' ||
                                to_char(c.hora_fin, 'HH24:MI'), ', ') AS franjas,
            max(c.link) AS link,
            (SELECT count(*) FROM seguimiento.citaciones cc
              WHERE cc.id_anonimizado = m.id_anonimizado
-               AND cc.fecha + cc.hora_fin <= $6::timestamp)::int AS citaciones,
+               AND cc.fecha + cc.hora_fin <= $4::timestamp)::int AS citaciones,
            (SELECT count(*) FROM seguimiento.contactos k
              WHERE k.id_anonimizado = m.id_anonimizado)::int AS contactos,
            (SELECT k.fecha FROM seguimiento.contactos k
@@ -925,13 +1100,14 @@ seg_citados_dia <- function(dia, sedes = NULL, tipos = NULL, ahora = seg_ahora()
              WHERE k.id_anonimizado = m.id_anonimizado
              ORDER BY k.fecha DESC, k.id DESC LIMIT 1) AS ultimo_resultado
       FROM seguimiento.citaciones c
-      JOIN seguimiento.marco m USING (id_anonimizado)
-     WHERE c.fecha = $5::date AND c.fecha + c.hora_fin <= $6::timestamp
+      JOIN seguimiento.marco_completo m USING (id_anonimizado)
+     WHERE c.fecha = $3::date AND c.fecha + c.hora_fin <= $4::timestamp
        AND %s AND %s
-     GROUP BY m.id_anonimizado
+     -- Todas las columnas de m y no solo el id: marco_completo es una vista y
+     -- no tiene la llave primaria que dejaba a Postgres deducir el resto.
+     GROUP BY m.id_anonimizado, m.nombre, m.dependencia, m.tipo_vinculacion
      ORDER BY m.dependencia, m.id_anonimizado", SEG_DIA_POBLACION, SEG_DIA_SIN_ENVIO),
-    params = list(length(sedes) > 0, pg_lista(sedes),
-                  length(tipos) > 0, pg_lista(tipos), as.character(dia), ahora))
+    params = list(length(tipos) > 0, pg_lista(tipos), as.character(dia), ahora))
 }
 
 
@@ -1014,8 +1190,8 @@ seg_totales <- function(avance) {
 # seg_avance(), y la curva no termina en un numero distinto del indicador que
 # tiene justo encima. Contar filas de `respuestas` daria de mas.
 #
-# El filtro es la lista de dependencias ya resuelta por el listado, no sede ni
-# tipo: asi el grafico mide la misma poblacion que los indicadores, incluido el
+# El filtro es la lista de dependencias ya resuelta por el listado, no la unidad:
+# asi el grafico mide la misma poblacion que los indicadores, incluido el
 # buscador, que filtra en R y no llega al SQL. NULL o vacio = todas.
 # RPostgres abre la conexion en UTC, no en la zona del servidor. Sin convertir,
 # `::date` corta el dia a las 19:00 de Medellin: todo lo que se responda en la
@@ -1046,7 +1222,7 @@ seg_serie <- function(dependencias = NULL, ahora = seg_ahora()) {
   db_get(sprintf("
     WITH pob AS (
       SELECT m.id_anonimizado
-        FROM seguimiento.marco m
+        FROM seguimiento.marco_completo m
        WHERE m.estado_vinculacion = 'Activo'
          AND ($1::boolean IS FALSE OR m.dependencia = ANY(string_to_array($2, chr(1))))
     ),
@@ -1124,7 +1300,7 @@ seg_serie_indicadores <- function(dependencias = NULL, ahora = seg_ahora()) {
   db_get(sprintf("
     WITH pob AS (
       SELECT m.id_anonimizado
-        FROM seguimiento.marco m
+        FROM seguimiento.marco_completo m
        WHERE m.estado_vinculacion = 'Activo'
          AND ($1::boolean IS FALSE OR m.dependencia = ANY(string_to_array($2, chr(1))))
     ),
@@ -1188,7 +1364,7 @@ seg_conteos_forma <- function(dependencias = NULL, ahora = seg_ahora()) {
   db_get(sprintf("
     WITH pob AS (
       SELECT m.id_anonimizado, %2$s AS forma
-        FROM seguimiento.marco m
+        FROM seguimiento.marco_completo m
         LEFT JOIN %3$s f ON m.id_anonimizado = f.id_anonimizado
        WHERE m.estado_vinculacion = 'Activo'
          AND ($1::boolean IS FALSE OR m.dependencia = ANY(string_to_array($2, chr(1))))
@@ -1277,7 +1453,7 @@ seg_marco_total <- function(dependencias = NULL) {
   usar_dep <- length(dependencias) > 0
   x <- db_get("
     SELECT count(*)::int AS n
-      FROM seguimiento.marco m
+      FROM seguimiento.marco_completo m
      WHERE m.estado_vinculacion = 'Activo'
        AND ($1::boolean IS FALSE OR m.dependencia = ANY(string_to_array($2, chr(1))))",
     params = list(usar_dep, pg_lista(dependencias)))
@@ -1350,7 +1526,7 @@ seg_ultimo_envio <- function(dependencias = NULL) {
     SELECT max(r.submission_date) AS ultimo
       -- FROM seguimiento.respuestas r
       FROM public.respuestas_procesadas r
-      JOIN seguimiento.marco m ON m.id_anonimizado = r.id_anonimizado
+      JOIN seguimiento.marco_completo m ON m.id_anonimizado = r.id_anonimizado
      WHERE m.estado_vinculacion = 'Activo'
        AND ($1::boolean IS FALSE OR m.dependencia = ANY(string_to_array($2, chr(1))))",
     params = list(usar_dep, pg_lista(dependencias)))
@@ -1387,7 +1563,7 @@ seg_inicio_campo <- function() {
     SELECT (min(r.submission_date) AT TIME ZONE $1::text)::date AS d
       -- FROM seguimiento.respuestas r
       FROM public.respuestas_procesadas r
-      JOIN seguimiento.marco m ON m.id_anonimizado = r.id_anonimizado
+      JOIN seguimiento.marco_completo m ON m.id_anonimizado = r.id_anonimizado
      WHERE m.estado_vinculacion = 'Activo'", params = list(SEG_TZ))
   if (is.null(x) || nrow(x) == 0 || is.na(x$d[1])) return(NULL)
   seg_lunes(x$d[1])

@@ -18,10 +18,18 @@ respaldos/
 marco.xlsx
 Simulacion_respuestas_ODK.csv
 
+# --- Llave de la cuenta de servicio de Google (Sheets) ---
+# Se pasa por fuera, como el .Renviron; su ruta va en GOOGLE_SA_KEY.
+**/descarga_datos_reales/*.json
+
+# --- Scripts personales de revision de variables ---
+**/Shiny_seguimiento/VARIABLES.R
+**/Shiny_seguimiento/REVISION_IND_VARIABLES.R
+
 # --- Logs ---
-docker/logs/
+**/docker/logs/
 *.log
-descarga_datos_reales/logs_conexion.txt
+**/descarga_datos_reales/logs_conexion.txt
 
 # --- Metadatos de Windows al copiar a WSL ---
 *:Zone.Identifier

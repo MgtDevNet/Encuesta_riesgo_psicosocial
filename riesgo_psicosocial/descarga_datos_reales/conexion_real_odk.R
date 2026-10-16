@@ -2,9 +2,11 @@ library(tidyverse)
 library(httr)
 
 # Credenciales desde el .Renviron de la carpeta del script
-readRenviron("C:/Users/ENDS/Desktop/riesgo_psicosocial/descarga_datos_reales/.Renviron")
+readRenviron(r"(\\wsl.localhost\Ubuntu\home\mgtdev\trabajo\riesgo_psicosocial\descarga_datos_reales\.Renviron)")
 usr <- Sys.getenv("ODK_USER")
 psw <- Sys.getenv("ODK_PASSWORD")
+url_odk <- Sys.getenv("ODK_URL")
+#ODK_URL=https://roman-april-gigahertz.ngrok-free.dev/v1/projects/1
 
 # Misma función de aplanado del script
 unnest_all <- function(df) {
@@ -18,9 +20,11 @@ unnest_all <- function(df) {
   df
 }
 
+
+
 # Descarga completa: sin filtro de fecha, solo excluye rechazados
 url <- paste0(
-  "https://roman-april-gigahertz.ngrok-free.dev/v1/projects/1/forms/riesgo_psicosocial2.svc/Submissions",
+  url_odk,"/forms/riesgo_psicosocial.svc/Submissions",
   "?$filter=__system/reviewState%20ne%20'rejected'"
 )
 
@@ -52,3 +56,6 @@ odk %>% View()
 
  # El primer envío exactamente como lo manda ODK, antes de aplanar
 str(json_crudo$value[[1]], max.level = 2)
+
+odk %>% names()
+odk %>% select(cedula, empleado_registrado)

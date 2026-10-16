@@ -42,7 +42,15 @@ psw <- Sys.getenv("ODK_PASSWORD")
 if (usr == "" || psw == "") {
   stop("Faltan ODK_USER y/o ODK_PASSWORD. Definalas en ", file.path(dir_script, ".Renviron"))
 }
-tabla_db <- "odk_respuestas_intento_2"
+# La tabla depende de la etapa de la encuesta (ETAPA en docker/.env, que
+# docker-compose pasa al contenedor): odk_respuestas_piloto u
+# odk_respuestas_reales. conectar_bd.R y la Shiny usan la misma regla.
+etapa <- tolower(trimws(Sys.getenv("ETAPA")))
+if (!nzchar(etapa)) etapa <- "piloto"
+if (!etapa %in% c("piloto", "reales")) {
+  stop("ETAPA debe ser 'piloto' o 'reales' (esta en '", etapa, "').")
+}
+tabla_db <- paste0("odk_respuestas_", etapa)
 
 # Llave unica de cada envio de ODK (el instanceID, que llega como `__id`).
 # En la tabla queda en la columna clave; ver el select() mas abajo.
@@ -136,7 +144,7 @@ tryCatch({
       mutate_all(as.character)
     
     marco <- dbGetQuery(con, "SELECT * FROM seguimiento.marco")
-    
+    marco %>% names()
     # la variable cédula del odk viene vacia
     marco %>% count(tipo_vinculacion)
     
@@ -145,9 +153,9 @@ tryCatch({
     aux <- left_join(
       empleados,
       marco,
-      by = c("cedula"="id_anonimizado",
-             "cal_nombre" = "nombre",
-             "cal_sexo" = "sexo"
+      by = c("cedula"="id_anonimizado"
+             #"cal_nombre" = "nombre",
+             
       )
     )
     
@@ -157,55 +165,73 @@ tryCatch({
         duracion_min = round(as.numeric(
           difftime(ymd_hms(endtime), ymd_hms(starttime), units = "mins"))
           ,1),
-        sexo = if_else(cal_sexo == "M",1,2),
-        form_intra = if_else(cal_forma == "A",1,2)
+        sexo.x = 
+          case_when(
+            sexo.x == "M" ~ 1,
+            sexo.x == "F" ~ 2,
+            T ~ 3
+            
+          ),
+        form_intra = if_else(forma == "A",1,2),
+        # registrados: fecha del marco (numero de serie de Excel);
+        # no registrados: ODK solo trae el año, se toma el 1 de julio
+        # para que conectar_bd.R pueda calcular la edad con as.Date()
+        nacimiento = coalesce(
+          as.character(as.Date(as.numeric(fechanacimiento), origin = "1899-12-30")),
+          if_else(is.na(nacimiento), NA_character_, paste0(nacimiento, "-07-01"))
+        )
       )
     
     # selección de variables. 
     empleados <- aux %>%
       select(
-        "nombre" = cal_nombre, # VERIFICADO
+        "nombre" = nombre.x, # VERIFICADO ESTA EN ODK
         
-        tipo_vinculacion, # VERIFICADO
+        tipo_vinculacion, # VERIFICADO. MARCO MUESTRAL
+        # HAY QUE LLENAR ESTE DESDE SHINY CON CATEGORÍAS
         
-        "sexo" = sexo, # 1 es Masculina y 2 es femenino VERIFICADO
+        "sexo" = sexo.x, # 1 es Masculina y 2 es femenino VERIFICADO
+        # ojo ahora se agrego no binario y es 3. ESTA EN ODK
         
-        cal_sexo,
+        #cal_sexo, # NA EN NO REGISTRADOS
         
-        cal_naci,
+        #cal_naci, # NA EN NO REGISTRADOS
         
-        consentimiento, # 1 es si y 2 es no. VERIFICADO
+        consentimiento, #
+        # 1 es si y 2 es no. VERIFICADO ESTA EN ODK
         
-        "submission_date" = submissionDate,  # VERIFICADO
+        "submission_date" = submissionDate,  # VERIFICADO ESTA EN ODK
         
-        "inicio" = starttime, # VERIFICADO        
+        "inicio" = starttime, # VERIFICADO ESTA EN ODK        
         
-        "fin" = endtime,      # VERIFICADO    
+        "fin" = endtime,      # VERIFICADO ESTA EN ODK   
         
-        "duracion_min" = duracion_min,    # VERIFICADO  
+        "duracion_min" = duracion_min,    # VERIFICADO ESTA EN ODK  
         
-        "deviceid" = deviceId,          # VERIFICADO
+        "deviceid" = deviceId,          # VERIFICADO ESTA EN ODK
         
         # clave = el ENVIO (instanceID de ODK); id_anonimizado = la PERSONA,
         # el mismo id de seguimiento.marco. Es lo que asumen conectar_bd.R y
         # la Shiny: no invertirlos.
-        "clave" = X__id,
+        "clave" = X__id, # ESTA EN ODK
 
-        "id_anonimizado" = cedula,
+        "id_anonimizado" = cedula, # ESTA EN ODK
         
-        "dependencia" = dependencia.y,      # VERIFICADO
         
-        "sede_seccional" = sede, # FALTA POR PONER EN LA SHINY    
+        "dependencia" = dependencia,      # VERIFICADO, MARCO MUESTRAL 
+        # HAY QUE LLENARLO DESDE SHINY 
         
-        "tipo_vinculacion" = tipo_vinculacion, # VERIFICADO
+        
         
         "nivel_empleo" = nivel_empleo,# VERIFICADO
+        # HAY QUE LLENARLO DESDE SHINY
         
-        "forma_cuestionario" = cal_forma,# VERIFICADO
+        "forma_cuestionario" = forma,# VERIFICADO ESTA EN ODK
         
-        "nacimiento" = cal_naci,  # verificado
+        nacimiento,  # marco si esta registrado, si no el año de ODK
+        # (ver el mutate de arriba)
         
-        estado_civil,
+        #estado_civil, ya no se usa
         # ETQ_ESTADO_CIVIL <- c(
         #   "1" = "Soltero (a)",
         #   "2" = "Casado (a)",
@@ -216,17 +242,15 @@ tryCatch({
         #   "7" = "Sacerdote / Monja"
         # )
         
-        nivel_academico, # VERIFICADO
+        nivel_academico, # VERIFICADO, ESTA EN ODK
         
-        ocupacion, # OJO, EL NOMBRE EN LA BD ESTA TROCADO
-        # ESTO EN VERDAD ES LA PROFESIÓN
-        profesion,
+        ocupacion, # ESTA EN ODK,
         
-        "departamento"=departamento,  # VERIFICADO, ES EL DEPARTAMENTO DONDE VIVE (DICCIONARIO)    
-        "ciudad"=ciudad,       # VERIFICADO, ES CIUDAD DONDE VIVE (DICCIONARIO)
-        estrato,      # VERIFICADO (VER DICCIONARIO)     
-        vivienda,      # VERIFICADO (VER DICCIONARIO)  
-        dependientes,  # VERFICADO
+        "departamento"=departamento,  # ESTA EN ODK   
+        "ciudad"=ciudad,       # ESTA EN ODK 
+        estrato,      # ESTA EN ODK      
+        vivienda,      # ESTA EN ODK  
+        dependientes,  # ESTA EN ODK 
         
         #  Preguntas formulario Intralaboral Forma B    
         ila_p1,            
@@ -519,37 +543,40 @@ tryCatch({
         ee_p31,
         
         
-        consentimiento,    
+        #consentimiento, YA SE PUSO ARRIBA    
                     
         
         # ojo, no son el mismo pero por facilidad se pone
-        "departamento_lab" = departamento,  
-        "ciudad_lab" = ciudad,
+        "departamento_lab" = departamento_lab,  # ESTA EN ODK 
+        "ciudad_lab" = ciudad_lab, # ESTA EN ODK
         
+         
+        "anos_lab" = trabajo_a_os, # ESTA EN ODK
+        "anos_lab_num" = trabajo_a_os, # ESTA EN ODK
         
-        "anos_lab" = trabajo_a_os,
-        "anos_lab_num" = trabajo_a_os,
-        
-        "cargo" = categoria.y,
+        "cargo" = cargo, # ESTA EN ODK
         
         #"tipo_cargo" SE ELIMINIO POR PETICIÓN DE DIFARINEY Y JAIME
         
         "anos_cargo" = cargo_a_os,       
         "anos_cargo_num" = cargo_a_os,
         
-        "area" = descripcion_unidad,
+        "area" = area, #ESTA EN ODK
         
         # "tipo_contrato" SE ELIMINO POR PETICIÓN DE DIFARINEY Y JAIME
         
-        "horas",             
-        "tipo_salario" = tipo_salario,     
+        "horas",   #ESTA EN ODK          
+        "tipo_salario" = tipo_salario,  #ESTA EN ODK   
         form_intra,
-        X__id,
+        X__id, #ESTA EN ODK
         
         # adicionales
-        ila_val1,     
-        ila_val2,     
-        ilb_val1
+        ila_val1,     #ESTA EN ODK
+        ila_val2,     #ESTA EN ODK
+        ilb_val1,#ESTA EN ODK
+        
+        #nuevas
+        empleado_registrado #  ES NUEVA Y ESTA EN ODK
         
       )
     
@@ -618,7 +645,8 @@ tryCatch({
   estado_salida <<- 1L
   cat("\n================================================================\n")
   cat("[ERROR] Hubo un problema al descargar o actualizar los datos.\n")
-  cat(sprintf("Detalle del fallo: %s\n", e$message))
+  # conditionMessage y no e$message: en los errores de dplyr e$message viene vacio
+  cat(sprintf("Detalle del fallo: %s\n", conditionMessage(e)))
   cat(sprintf("Fecha y hora del error: %s\n", Sys.time()))
   cat("================================================================\n\n")
 })

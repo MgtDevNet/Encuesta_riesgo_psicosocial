@@ -89,9 +89,6 @@ mod_seguimiento_ui <- function(id) {
 
     div(
       class = "d-flex flex-wrap gap-3 align-items-end mb-3",
-      # El filtro de sede solo existe si el marco trae sedes: el export de
-      # nomina no las tiene, y un desplegable sin opciones solo estorba.
-      uiOutput(ns("filtro_sedes"), class = "filtro-sedes"),
       div(style = "min-width:220px;",
           # Mismo rotulo que en Resultados y el mismo de la nomina:
           # DESCRIPCION_UNIDAD, la facultad, escuela o direccion de la que
@@ -112,7 +109,6 @@ mod_seguimiento_ui <- function(id) {
                                   "Menor avance"     = "avance",
                                   "Más encuestados"  = "encuestados",
                                   "Nombre"           = "dependencia",
-                                  "Sede"             = "sede",
                                   "Más grandes"      = "planeado"),
                       selected = "faltan")),
       actionButton(ns("limpiar"), "Limpiar filtros", class = "btn-sm btn-outline-secondary mb-1")
@@ -138,7 +134,17 @@ mod_seguimiento_ui <- function(id) {
     # Va al final, despues del detalle: es una lista de trabajo --a quien llamar
     # de la jornada de tal dia-- y no parte de la lectura del avance, que es lo
     # que ocupa el resto de la pestana.
-    uiOutput(ns("citados_dia"))
+    uiOutput(ns("citados_dia")),
+
+    # Quien respondio sin estar en el marco, para completarle los datos del
+    # marco. Va de ultimo: es trabajo de depuracion, no lectura del avance.
+    uiOutput(ns("no_registrados")),
+    tags$script(HTML(sprintf(
+      "$(document).on('click', '#%s [data-completar]', function(){
+         Shiny.setInputValue('%s', String($(this).attr('data-completar')),
+                             {priority: 'event'});
+       });",
+      ns("no_registrados"), ns("nr_completar"))))
   )
 }
 
@@ -149,32 +155,11 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
 
     seleccionada <- reactiveVal(NULL)
 
-    output$filtro_sedes <- renderUI({
-      sedes <- seg_sedes()
-      if (length(sedes) == 0) return(NULL)
-      div(style = "min-width:220px;",
-          selectizeInput(ns("sedes"), "Sede o seccional", choices = sedes,
-                         multiple = TRUE, width = "100%",
-                         options = list(placeholder = "Todas")))
-    })
-
     observe({
       updateSelectizeInput(session, "tipos", choices = seg_tipos_dependencia(), server = FALSE)
-
-      # Ordenar por sede solo tiene sentido si el marco trae sedes.
-      opciones <- c("Más pendientes"  = "faltan",
-                    "Menor avance"    = "avance",
-                    "Más encuestados" = "encuestados",
-                    "Nombre"          = "dependencia",
-                    if (length(seg_sedes())) c("Sede" = "sede"),
-                    "Más grandes"    = "planeado")
-      elegido <- isolate(input$orden) %||% "faltan"
-      if (!elegido %in% opciones) elegido <- "faltan"
-      updateSelectInput(session, "orden", choices = opciones, selected = elegido)
     })
 
     observeEvent(input$limpiar, {
-      updateSelectizeInput(session, "sedes", selected = character(0))
       updateSelectizeInput(session, "tipos", selected = character(0))
       updateTextInput(session, "buscar", value = "")
       updateSelectInput(session, "orden", selected = "faltan")
@@ -188,7 +173,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     # que atiende a todas las sesiones. Reordenar el listado hacia lo mismo, para
     # dibujar exactamente el mismo grafico.
     #
-    #   avance_base      lo unico que va a la base: sede y tipo.
+    #   avance_base      lo unico que va a la base: la unidad.
     #   avance_filtrado  + el buscador. Es la POBLACION que se esta mirando, y de
     #                    aqui cuelgan los indicadores y el grafico.
     #   avance           + el orden, que solo le importa al listado.
@@ -206,7 +191,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       # Cerrar o reabrir un caso mueve "Faltan" (ver seg_sql_cierre()): sin
       # esto, el listado y los cajones no lo verian hasta recargar la pagina.
       recarga_cto()
-      seg_avance(input$sedes, input$tipos)
+      seg_avance(input$tipos)
     })
 
     avance_filtrado <- reactive({
@@ -225,7 +210,6 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
         faltan      = a[order(-a$faltan,   a$dependencia), , drop = FALSE],
         encuestados = a[order(-a$encuestados, a$dependencia), , drop = FALSE],
         planeado    = a[order(-a$planeado, a$dependencia), , drop = FALSE],
-        sede        = a[order( a$sede_seccional, a$dependencia), , drop = FALSE],
         dependencia = a[order( a$dependencia), , drop = FALSE],
         a)
     })
@@ -282,7 +266,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     # --- grafico de avance: barras por semana o curva diaria ------------------
 
     # Se alimenta de la lista de dependencias que YA paso por los filtros, no de
-    # input$sedes/input$tipos: el buscador filtra en R y nunca llega al SQL, asi
+    # input$tipos: el buscador filtra en R y nunca llega al SQL, asi
     # que pasarle los mismos filtros a la consulta dejaria la curva midiendo una
     # poblacion distinta de la que cuentan los indicadores de arriba. Con la
     # lista resuelta, la curva cierra exactamente en su "Encuestados".
@@ -350,7 +334,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     # --- quien no contesto, por dia de citacion ------------------------------
     # Se elige un dia y salen las personas citadas ese dia que HOY siguen sin
     # ningun envio (seg_citados_dia()). Va sobre toda la universidad, pero
-    # respeta los filtros de sede y tipo de la barra de arriba, que son los de
+    # respeta el filtro de unidad de la barra de arriba, que es el de
     # toda la pestana.
     #
     # El selector de dia se dibuja con los datos --sus opciones son los dias que
@@ -362,7 +346,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     dias_citados <- reactive({
       r$citaciones
       r$respuestas
-      seg_dias_citados(input$sedes, input$tipos)
+      seg_dias_citados(input$tipos)
     })
 
     dia_actual <- reactive({
@@ -391,7 +375,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
                               selected = dia_actual())),
               div(class = "small text-muted",
                   "Citadas ese día que todavía no han enviado nada. ",
-                  "Respeta los filtros de sede y tipo de arriba.")),
+                  "Respeta el filtro de unidad de arriba.")),
           uiOutput(ns("tabla_dia"))
         )
       )
@@ -408,7 +392,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       # declara mas abajo, con lo demas de la bitacora; para cuando esta
       # reactiva se evalua, ya existe.
       recarga_cto()
-      seg_citados_dia(dia, input$sedes, input$tipos)
+      seg_citados_dia(dia, input$tipos)
     })
 
     output$tabla_dia <- renderUI({
@@ -442,7 +426,6 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
           id_anonimizado   = p$id_anonimizado,
           nombre           = p$nombre %||% NA_character_,
           dependencia      = p$dependencia,
-          sede             = p$sede,
           tipo_vinculacion = p$tipo_vinculacion,
           franjas          = p$franjas,
           link             = ifelse(is.na(p$link), "", p$link),
@@ -457,6 +440,89 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       }
     )
 
+    # --- quien respondio sin estar en el marco -------------------------------
+    # Ver seg_crear_marco_completo(). Cada vez que llegan respuestas se da de
+    # alta a los nuevos; la lista trae a todos, completos o no, para que se vea
+    # que paso con cada uno.
+    no_registrados <- reactive({
+      r$respuestas
+      tryCatch(seg_sincronizar_no_registrados(), error = function(e) NULL)
+      seg_no_registrados()
+    })
+
+    output$no_registrados <- renderUI({
+      p <- no_registrados()
+      if (nrow(p) == 0) return(NULL)
+      pendientes <- sum(is.na(p$completado_en))
+      card(
+        class = "shadow-sm mb-3",
+        card_header(tags$b("Personas que respondieron sin estar en el marco"),
+                    span(class = "text-muted small", paste("· etapa", seg_etapa()))),
+        card_body(
+          div(class = "small text-muted mb-2",
+              "Contestaron la encuesta pero su cédula no está en el marco muestral. ",
+              "Mientras no se completen su dependencia, tipo de vinculación y nivel ",
+              "del empleo, no cuentan en el avance ni aparecen en Resultados. ",
+              tags$b("Una vez guardados, los datos quedan fijos.")),
+          div(class = "small mb-2",
+              if (pendientes > 0)
+                sprintf("%s de %s por completar.", fmt_num(pendientes), fmt_num(nrow(p)))
+              else "Todas tienen los datos completos."),
+          tabla_no_registrados(p)
+        )
+      )
+    })
+
+    nr_actual <- reactiveVal(NULL)
+    nr_opciones <- reactiveVal(NULL)
+
+    observeEvent(input$nr_completar, {
+      p <- no_registrados()
+      f <- p[p$id_anonimizado == input$nr_completar, , drop = FALSE]
+      req(nrow(f) == 1)
+      if (!is.na(f$completado_en)) {
+        showNotification("Los datos de esta persona ya están completos y quedaron fijos.",
+                         type = "warning")
+        return()
+      }
+      nr_actual(f$id_anonimizado)
+      output$nr_aviso <- renderUI(NULL)
+      op <- seg_opciones_no_registrados()
+      nr_opciones(op)
+      showModal(modal_no_registrado(ns, f, op))
+    })
+
+    # La unidad se muestra al elegir la dependencia: no se pregunta, se deriva.
+    output$nr_unidad <- renderUI({
+      op <- nr_opciones()
+      dep <- input$nr_dependencia
+      req(op, dep)
+      u <- op$dependencia$unidad[match(dep, op$dependencia$dependencia)]
+      if (!is.na(u)) div(class = "small text-muted mb-3", "Unidad: ", tags$b(u))
+    })
+
+    observeEvent(input$nr_guardar, {
+      id <- nr_actual()
+      req(id)
+      quien <- if (!is.null(r$usuario)) r$usuario$usuario else NA_character_
+      res <- tryCatch({
+        seg_completar_no_registrado(id, input$nr_dependencia, input$nr_tipo_vinculacion,
+                                    input$nr_nivel_empleo, quien)
+        NULL
+      }, error = function(e) conditionMessage(e))
+      if (!is.null(res)) {
+        output$nr_aviso <- renderUI(alerta(res, "warning"))
+        return()
+      }
+      removeModal()
+      nr_actual(NULL)
+      showNotification("Datos guardados. La persona ya cuenta en el avance y en Resultados.",
+                       type = "message")
+      # Rehace esta lista y el avance, el detalle y los indicadores, que leen
+      # marco_completo.
+      r$respuestas <- isolate(r$respuestas) + 1
+    })
+
     # --- listado: tabla o tarjetas -------------------------------------------
 
     # Resumen de lo que se esta viendo. Evita el error de leer un total filtrado
@@ -464,7 +530,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     # El total sin filtros no cambia mientras dure la sesion: se consulta aparte
     # para no pegarle a la base con cada tecla del buscador.
     total_dependencias <- reactive({
-      nrow(seg_avance(NULL, NULL))
+      nrow(seg_avance())
     })
 
     output$resumen <- renderUI({
@@ -545,11 +611,11 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
             class = "d-flex justify-content-between align-items-start gap-3 w-100",
             div(
               div(strong(cab$dependencia)),
-              # Solo lo que el marco trae: con el export de nomina, sede,
-              # municipio y centro de costo vienen vacios, y el subtitulo decia
-              # "NA · NA · centro NA".
+              # Solo lo que el marco trae: con el export de nomina, municipio
+              # y centro de costo vienen vacios, y el subtitulo decia
+              # "NA · centro NA".
               local({
-                partes <- c(cab$tipo_dependencia, cab$sede_seccional, cab$municipio,
+                partes <- c(cab$tipo_dependencia, cab$municipio,
                             if (!is.na(cab$centro_costo)) paste("centro", cab$centro_costo))
                 partes <- partes[!is.na(partes)]
                 if (length(partes))
@@ -783,7 +849,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       # El contacto se abre desde dos tablas distintas (personas de la
       # dependencia y citados del dia), asi que el nombre se lee del marco.
       nombre <- if (length(ids) == 1) db_get(
-        "SELECT nombre FROM seguimiento.marco WHERE id_anonimizado = $1",
+        "SELECT nombre FROM seguimiento.marco_completo WHERE id_anonimizado = $1",
         params = list(ids))$nombre[1]
       showModal(modal_contacto(
         ns, ids, nombre = nombre,
@@ -1016,8 +1082,6 @@ rejilla_tarjetas <- function(a, sel = NULL) {
 
       div(class = "tarjeta-titulo", f$dependencia),
       div(class = "tarjeta-sede",
-          # Sin sede en el marco queda solo el chip del estado, no un hueco.
-          if (!is.na(f$sede_seccional)) span(class = "sede-nombre", f$sede_seccional),
           chip_estado(e)),
 
       div(class = "progress tarjeta-barra", role = "progressbar",
@@ -1041,12 +1105,6 @@ rejilla_tarjetas <- function(a, sel = NULL) {
 tabla_dependencias <- function(a, sel = NULL) {
   max_falt <- max(a$faltan, 1)
 
-  # La columna de sede solo existe si el marco la trae: el export de nomina no
-  # tiene sedes, y una columna entera de NA no dice nada y ocupa lo que necesita
-  # el nombre de la dependencia. Se mira el dato, no una configuracion: si algun
-  # dia el marco trae sedes, la columna vuelve sola.
-  hay_sede <- any(!is.na(a$sede_seccional))
-
   cabecera <- function(col, rotulo, der = FALSE) {
     tags$th(
       scope = "col", class = if (der) "der",
@@ -1066,7 +1124,6 @@ tabla_dependencias <- function(a, sel = NULL) {
                              f$dependencia, f$avance, f$faltan, f$planeado),
 
       tags$td(class = "col-dep", f$dependencia),
-      if (hay_sede) tags$td(class = "col-sede", f$sede_seccional),
       tags$td(
         div(class = "col-avance",
             div(class = paste("pista", e$cls), role = "img",
@@ -1096,14 +1153,13 @@ tabla_dependencias <- function(a, sel = NULL) {
                    "Avance de la aplicacion por dependencia. Pulse una fila para ver el detalle."),
       tags$thead(tags$tr(
         cabecera("dependencia", "Dependencia"),
-        if (hay_sede) cabecera("sede", "Sede"),
         cabecera("avance", "Avance"),
         cabecera("encuestados", "Encuestados", der = TRUE),
         cabecera("faltan", "Pendientes", der = TRUE)
       )),
       tags$tbody(filas),
       tags$tfoot(tags$tr(
-        tags$td(colspan = if (hay_sede) "3" else "2",
+        tags$td(colspan = "2",
                 sprintf("%s dependencias", nrow(a))),
         tags$td(class = "der", sprintf("%s / %s",
                                        fmt_num(sum(a$encuestados)),
@@ -1431,8 +1487,7 @@ tabla_citados_dia <- function(p) {
               if (is.null(f$nombre) || is.na(f$nombre)) f$id_anonimizado
               else tagList(span(class = "col-nombre", f$nombre),
                            span(class = "col-medio", f$id_anonimizado))),
-      tags$td(class = "col-dep", f$dependencia,
-              if (!is.na(f$sede)) span(class = "col-medio", f$sede)),
+      tags$td(class = "col-dep", f$dependencia),
       tags$td(f$tipo_vinculacion),
       tags$td(class = "col-fecha", f$franjas),
       tags$td(class = "col-num der", fmt_num(f$citaciones)),
@@ -1467,6 +1522,81 @@ tabla_citados_dia <- function(p) {
                            tags$th("Franja"), tags$th(class = "der", "Veces citada"),
                            tags$th("Último contacto"), tags$th(""))),
         tags$tbody(filas)))
+}
+
+
+# --- personas fuera del marco ---------------------------------------------------
+
+tabla_no_registrados <- function(p) {
+  # Son timestamptz: fmt_fecha() pasaria por as.Date() en UTC y un envio de
+  # la noche saldria con el dia siguiente.
+  dia <- function(x) if (is.na(x)) "—" else format(as.POSIXct(x), "%d/%m/%Y", tz = SEG_TZ)
+  filas <- lapply(seq_len(nrow(p)), function(i) {
+    f <- p[i, ]
+    completo <- !is.na(f$completado_en)
+    tags$tr(
+      tags$td(class = "col-id",
+              if (is.na(f$nombre)) f$id_anonimizado
+              else tagList(span(class = "col-nombre", f$nombre),
+                           span(class = "col-medio", f$id_anonimizado))),
+      tags$td(class = "col-fecha", dia(f$primer_envio)),
+      tags$td(class = "col-dep",
+              if (completo) f$dependencia else span(class = "col-tenue", "Sin dato")),
+      tags$td(if (completo) f$tipo_vinculacion else span(class = "col-tenue", "Sin dato")),
+      tags$td(if (completo) f$nivel_empleo else span(class = "col-tenue", "Sin dato")),
+      tags$td(class = "col-accion",
+              if (completo)
+                tagList(chip_estado(list(cls = "bien", txt = "Fijo", sig = "✓")),
+                        span(class = "col-medio",
+                             paste(c(if (!is.na(f$completado_por)) f$completado_por,
+                                     dia(f$completado_en)), collapse = " · ")))
+              else
+                tags$button(type = "button", class = "btn btn-sm btn-outline-primary",
+                            `data-completar` = f$id_anonimizado,
+                            `aria-label` = paste("Completar datos de", f$id_anonimizado),
+                            "Completar datos")))
+  })
+
+  div(class = "tabla-dep-caja",
+      tags$table(
+        class = "tabla-dep tabla-per tabla-dia",
+        tags$thead(tags$tr(tags$th("Persona"), tags$th("Envío"), tags$th("Dependencia"),
+                           tags$th("Vinculación"), tags$th("Nivel del empleo"),
+                           tags$th(""))),
+        tags$tbody(filas)))
+}
+
+# Las opciones son las del marco (seg_opciones_no_registrados()): la dependencia
+# tiene 160 y pico, por eso va con buscador.
+modal_no_registrado <- function(ns, f, op) {
+  quien <- if (is.na(f$nombre)) f$id_anonimizado
+           else sprintf("%s (%s)", f$nombre, f$id_anonimizado)
+  elegir <- function(id, rotulo, opciones) {
+    selectizeInput(ns(id), rotulo, choices = c("", opciones), width = "100%",
+                   options = list(placeholder = "Elija una opción"))
+  }
+  modalDialog(
+    title = paste("Completar datos ·", quien),
+    size = "m",
+    easyClose = FALSE,
+    div(
+      elegir("nr_dependencia", SEG_NR_CAMPOS[["dependencia"]],
+             op$dependencia$dependencia),
+      uiOutput(ns("nr_unidad")),
+      elegir("nr_tipo_vinculacion", SEG_NR_CAMPOS[["tipo_vinculacion"]],
+             op$tipo_vinculacion),
+      elegir("nr_nivel_empleo", SEG_NR_CAMPOS[["nivel_empleo"]], op$nivel_empleo),
+      div(class = "alert alert-warning small",
+          tags$b("Revise antes de guardar: "),
+          "una vez guardados, estos datos quedan fijos y no se pueden cambiar ",
+          "desde la aplicación."),
+      uiOutput(ns("nr_aviso"))
+    ),
+    footer = tagList(
+      modalButton("Cancelar"),
+      actionButton(ns("nr_guardar"), "Guardar y dejar fijo", class = "btn-primary")
+    )
+  )
 }
 
 
@@ -2526,7 +2656,6 @@ mod_informe_ui <- function(id) {
       "semana y por día, y dependencias completadas y pendientes— en un documento ",
       "de Word. Sin filtros, cubre toda la universidad."),
     div(class = "d-flex flex-wrap gap-3 align-items-end",
-        uiOutput(ns("filtro_sedes")),
         div(style = "min-width:260px;",
             selectizeInput(ns("tipos"), "Unidad", choices = NULL, multiple = TRUE,
                            width = "100%", options = list(placeholder = "Todas"))),
@@ -2548,15 +2677,6 @@ mod_informe_server <- function(id, r = reactiveValues()) {
 
     # Mismos filtros de la barra de Avance, menos el buscador: aqui no hay un
     # listado sobre el que buscar.
-    output$filtro_sedes <- renderUI({
-      sedes <- seg_sedes()
-      if (length(sedes) == 0) return(NULL)
-      div(style = "min-width:220px;",
-          selectizeInput(ns("sedes"), "Sede o seccional", choices = sedes,
-                         multiple = TRUE, width = "100%",
-                         options = list(placeholder = "Todas")))
-    })
-
     observe({
       updateSelectizeInput(session, "tipos", choices = seg_tipos_dependencia(),
                            server = FALSE)
@@ -2567,9 +2687,8 @@ mod_informe_server <- function(id, r = reactiveValues()) {
       content  = function(archivo) {
         if (!puede()) stop("Sin permiso para descargar el informe.", call. = FALSE)
         filtros <- c(
-          if (length(input$sedes)) paste("Sede:", paste(input$sedes, collapse = ", ")),
           if (length(input$tipos)) paste("Unidad:", paste(input$tipos, collapse = ", ")))
-        informe_word(seg_avance(input$sedes, input$tipos), archivo, filtros,
+        informe_word(seg_avance(input$tipos), archivo, filtros,
                      seg_inicio_campo())
       }
     )

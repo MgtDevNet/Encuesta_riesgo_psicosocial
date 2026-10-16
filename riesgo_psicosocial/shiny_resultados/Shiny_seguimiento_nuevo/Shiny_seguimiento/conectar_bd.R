@@ -79,9 +79,16 @@ bd_cerrar <- function() if (DBI::dbIsValid(con)) DBI::dbDisconnect(con)
 # =============================================================================
 # 1. Leer la base original
 # =============================================================================
-# seguimiento.respuestas_odk es el formulario de ODK
-
-data <- bd_get("SELECT * FROM public.odk_respuestas_intento_2 ORDER BY clave")
+# El formulario de ODK tal como lo baja conexion_resultados_odk.R, en la tabla
+# de la etapa activa (ETAPA en docker/.env): odk_respuestas_piloto u
+# odk_respuestas_reales. Es la misma regla de seg_tabla_odk() en
+# R/utils_seguimiento.R, que aqui todavia no esta cargado.
+etapa <- tolower(trimws(Sys.getenv("ETAPA")))
+if (!nzchar(etapa)) etapa <- "piloto"
+if (!etapa %in% c("piloto", "reales")) {
+  stop("ETAPA debe ser 'piloto' o 'reales' (esta en '", etapa, "').", call. = FALSE)
+}
+data <- bd_get(sprintf("SELECT * FROM public.odk_respuestas_%s ORDER BY clave", etapa))
 
 data <- data %>% 
   mutate(across(c(
@@ -1293,12 +1300,8 @@ if (length(raros))
 # clasificaciones en texto y no en numero, y asi una consulta suelta contra la
 # base se lee sin tener que ir al XLSForm a buscar que significa un 3.
 
-ETQ_SEXO <- c("1" = "Masculino", "2" = "Femenino")
-
-ETQ_ESTADO_CIVIL <- c(
-  "1" = "Soltero (a)",   "2" = "Casado (a)",  "3" = "Unión libre",
-  "4" = "Separado (a)",  "5" = "Divorciado (a)", "6" = "Viudo (a)",
-  "7" = "Sacerdote / Monja")
+# El 3 (no binario) se agrego al formulario despues del primer despliegue.
+ETQ_SEXO <- c("1" = "Masculino", "2" = "Femenino", "3" = "No binario")
 
 ETQ_NIVEL_ACAD <- c(
   "0" = "Ninguno", "1" = "Primaria incompleta", "2" = "Primaria completa",
@@ -1333,24 +1336,6 @@ ETQ_TIPO_SALARIO <- c(
   "2" = "Una parte fija y otra variable",
   "3" = "Todo variable (a destajo, por producción, por comisión)")
 
-# Lista `sedes` del formulario. El orden de los codigos es el orden en que se
-# muestran en la pestana de resultados (RES_DESC_ORDEN en utils_resultados.R,
-# que repite estas etiquetas: si se cambia una aqui, cambiarla alli).
-ETQ_SEDE <- c(
-  "1"  = "Sede Municipio de Medellín, Ciudad Universitaria",
-  "2"  = "Seccional Bajo Cauca – Municipio de Caucasia",
-  "3"  = "Seccional Magdalena Medio – Municipio de Puerto Berrío",
-  "4"  = "Seccional Occidente – Municipio de Santa Fe de Antioquia",
-  "5"  = "Seccional Oriente – Municipio de Carmen de Viboral",
-  "6"  = "Seccional Suroeste – Municipio de Andes",
-  "7"  = "Seccional Urabá – Municipio de Turbo",
-  "8"  = "Seccional Urabá – Municipio de Apartadó",
-  "9"  = "Seccional Urabá – Municipio de Carepa",
-  "10" = "Sede Amalfi - Municipio de Amalfi",
-  "11" = "Sede Norte - Municipio de Yarumal",
-  "12" = "Sede Segovia - Municipio de Segovia",
-  "13" = "Sede Sonsón - Municipio de Sonsón")
-
 # Un codigo que no este en la lista devuelve NA en vez de romper; la guarda de
 # mas abajo avisa si eso pasa, porque significa que el XLSForm cambio.
 etq <- function(x, mapa) unname(mapa[as.character(x)])
@@ -1368,7 +1353,6 @@ socio <- data.frame(
   edad_anios      = as.integer(floor(as.numeric(
                       difftime(as.Date(data$submission_date),
                                as.Date(data$nacimiento), units = "days")) / 365.25)),
-  estado_civil    = etq(data$estado_civil,    ETQ_ESTADO_CIVIL),
   nivel_academico = etq(data$nivel_academico, ETQ_NIVEL_ACAD),
   estrato         = etq(data$estrato,         ETQ_ESTRATO),
   vivienda        = etq(data$vivienda,        ETQ_VIVIENDA),
@@ -1377,7 +1361,6 @@ socio <- data.frame(
   ciudad          = data$ciudad,
 
   # ficha de datos ocupacionales
-  sede_seccional  = etq(data$sede_seccional, ETQ_SEDE),
   departamento_lab = data$departamento_lab,
   ciudad_lab       = data$ciudad_lab,
   anos_empresa     = anos_de(data$anos_lab,   data$anos_lab_num),
@@ -1396,14 +1379,12 @@ TIPO_SOCIO <- c(
   sexo = "text",
   nacimiento = "date",
   edad_anios = "int",
-  estado_civil = "text",
   nivel_academico = "text",
   estrato = "text",
   vivienda = "text",
   dependientes = "int",
   departamento = "text",
   ciudad = "text",
-  sede_seccional = "text",
   departamento_lab = "text",
   ciudad_lab = "text",
   anos_empresa = "int",
@@ -1421,7 +1402,7 @@ cols_socio <- names(socio)
 # Si el XLSForm agrega una opcion y aqui no se refleja, etq() la vuelve NA en
 # silencio y el cruce pierde gente sin decir nada. Se compara el numero de
 # vacios de la columna traducida contra el de la original.
-for (v in c(sexo = "sexo", estado_civil = "estado_civil",
+for (v in c(sexo = "sexo",
             nivel_academico = "nivel_academico", estrato = "estrato",
             vivienda = "vivienda", tipo_salario = "tipo_salario")) {
   perdidos <- sum(is.na(socio[[v]])) - sum(is.na(data[[v]]))

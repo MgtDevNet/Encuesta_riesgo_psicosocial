@@ -246,13 +246,6 @@
   margin-bottom: .5rem;
 }
 
-/* La sede cede el espacio: si no cabe se recorta ella, nunca la etiqueta. */
-.tarjeta-sede .sede-nombre {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .tarjeta-barra {
   height: 6px;
   margin-bottom: .6rem;
@@ -510,7 +503,6 @@
 
 .tabla-dep .der { text-align: right; }
 .tabla-dep .col-dep  { font-weight: 550; }
-.tabla-dep .col-sede { color: var(--bs-secondary-color); white-space: nowrap; }
 .tabla-dep .col-enc  { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .tabla-dep tfoot td {

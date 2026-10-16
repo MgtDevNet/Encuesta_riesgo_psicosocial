@@ -84,6 +84,9 @@ services:
       PG_DB: ${PG_DB}
       PG_USER: ${PG_USER}
       PG_PASSWORD: ${PG_PASSWORD}
+      # piloto o reales: de que tabla de ODK se descarga y se califica
+      # (odk_respuestas_piloto u odk_respuestas_reales). Ver docker/.env.
+      ETAPA: ${ETAPA:-piloto}
       TZ: America/Bogota
 
     # Puertos: host:contenedor

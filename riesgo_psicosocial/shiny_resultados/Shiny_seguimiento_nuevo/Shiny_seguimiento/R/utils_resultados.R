@@ -381,11 +381,11 @@ RES_DIMENSIONES <- RES_MEDIDAS[vapply(RES_MEDIDAS, res_nivel_de, "") == "dimensi
 # El orden es el de la lista desplegable: primero lo laboral (que es sobre lo
 # que la universidad puede actuar) y después lo sociodemográfico.
 
-# Sede, dedicación y modalidad de trabajo estuvieron aquí y se quitaron: el
-# marco real es un export de nómina que no trae esas tres columnas, así que el
-# corte solo ofrecía un grupo "Sin dato" con toda la población. La consulta de
-# res_datos() las sigue leyendo; si algún día el marco las trae, basta con
-# devolverlas a esta lista.
+# Dedicación y modalidad de trabajo estuvieron aquí y se quitaron: el marco
+# real es un export de nómina que no trae esas columnas, así que el corte solo
+# ofrecía un grupo "Sin dato" con toda la población. La consulta de res_datos()
+# las sigue leyendo; si algún día el marco las trae, basta con devolverlas a
+# esta lista. La sede también se quitó, pero del todo: ya no se usa.
 RES_CRUCES <- c(
   # El rotulo es la palabra que usa la nomina, DESCRIPCION_UNIDAD, y nada mas:
   # sus 40 valores son facultades, escuelas, institutos, vicerrectorias y
@@ -397,7 +397,6 @@ RES_CRUCES <- c(
   # nombre de la columna de origen; lo demas se explica aqui.
   tipo_dependencia = "Unidad",
   dependencia      = "Dependencia",
-  sede_seccional   = "Sede o seccional",
   tipo_vinculacion = "Tipo de vinculación",
   nivel_empleo     = "Nivel del empleo (grupo de nómina)",
   tipo_salario     = "Tipo de salario",
@@ -407,7 +406,6 @@ RES_CRUCES <- c(
   forma            = "Forma del cuestionario",
   sexo             = "Sexo",
   edad             = "Grupo de edad",
-  estado_civil     = "Estado civil",
   estrato          = "Estrato",
   nivel_academico  = "Nivel académico",
   vivienda         = "Tipo de vivienda",
@@ -486,11 +484,6 @@ res_datos <- function() {
     sprintf("r.clas_dim_%s_%s AS dim_%s_%s", f, res_dims_de(toupper(f)),
             res_dims_de(toupper(f)), f))
 
-  # Una `respuestas` escrita antes de que conectar_bd.R guardara la sede no
-  # tiene la columna: la pestana abre igual, con todo el mundo en "Sin dato",
-  # hasta la proxima vez que se corra conectar_bd.R.
-  sede <- if (res_hay_columna("sede_seccional")) "r.sede_seccional" else "NULL::text"
-
   sel <- c(
     por_forma("a"),
     por_forma("b"),
@@ -501,9 +494,6 @@ res_datos <- function() {
   d <- db_get(sprintf("
     SELECT m.dependencia,
            m.tipo_dependencia,
-           -- La sede la contesta la persona en el formulario (lista `sedes`) y
-           -- conectar_bd.R la guarda ya etiquetada; el marco no la trae.
-           %s AS sede_seccional,
            m.tipo_vinculacion,
            m.nivel_empleo,
            m.dedicacion,
@@ -535,7 +525,6 @@ res_datos <- function() {
            -- consulta reventaba con un function age(character varying) does
            -- not exist y la pestana de resultados no abria.
            r.edad_anios,
-           r.estado_civil,
            r.vivienda,
            r.dependientes,
            r.tipo_salario,
@@ -549,9 +538,9 @@ res_datos <- function() {
               -- FROM seguimiento.respuestas
               FROM public.respuestas_procesadas
              ORDER BY id_anonimizado, submission_date DESC NULLS LAST, clave DESC) r
-      JOIN seguimiento.marco m         ON r.id_anonimizado = m.id_anonimizado
+      JOIN seguimiento.marco_completo m         ON r.id_anonimizado = m.id_anonimizado
      WHERE m.estado_vinculacion = 'Activo'
-       AND %s IS TRUE", sede, paste(sel, collapse = ",\n           "),
+       AND %s IS TRUE", paste(sel, collapse = ",\n           "),
     seg_sql_acepta("r")))
 
   if (nrow(d) == 0) return(d)
@@ -1053,7 +1042,6 @@ RES_DESC_BLOQUES <- list(
       list(v = "sexo",            tipo = "cat"),
       list(v = "edad",            tipo = "cat"),
       list(v = "edad_anios",      tipo = "num", rotulo = "Edad (años)"),
-      list(v = "estado_civil",    tipo = "cat"),
       list(v = "nivel_academico", tipo = "cat"),
       list(v = "estrato",         tipo = "cat"),
       list(v = "vivienda",        tipo = "cat"),
