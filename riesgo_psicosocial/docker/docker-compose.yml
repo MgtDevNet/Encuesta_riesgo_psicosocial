@@ -87,6 +87,9 @@ services:
       # piloto o reales: de que tabla de ODK se descarga y se califica
       # (odk_respuestas_piloto u odk_respuestas_reales). Ver docker/.env.
       ETAPA: ${ETAPA:-piloto}
+      # si o no: si quien respondio sin estar en el marco cuenta en la app.
+      # Ver docker/.env.
+      INCLUIR_NO_REGISTRADOS: ${INCLUIR_NO_REGISTRADOS:-si}
       TZ: America/Bogota
 
     # Puertos: host:contenedor

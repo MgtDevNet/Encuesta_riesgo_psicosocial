@@ -406,6 +406,7 @@ RES_CRUCES <- c(
   forma            = "Forma del cuestionario",
   sexo             = "Sexo",
   edad             = "Grupo de edad",
+  estado_civil     = "Estado civil",
   estrato          = "Estrato",
   nivel_academico  = "Nivel académico",
   vivienda         = "Tipo de vivienda",
@@ -491,6 +492,11 @@ res_datos <- function() {
     "r.clas_total_extra  AS tot_extra",
     "r.clas_total_estres AS tot_estres")
 
+  # estado_civil volvio al formulario el 2026-10-20. Una `respuestas` escrita
+  # antes de eso no tiene la columna: la pestana abre igual, con todo el mundo
+  # en "Sin dato", hasta la proxima vez que se corra conectar_bd.R.
+  ecivil <- if (res_hay_columna("estado_civil")) "r.estado_civil" else "NULL::text"
+
   d <- db_get(sprintf("
     SELECT m.dependencia,
            m.tipo_dependencia,
@@ -525,6 +531,7 @@ res_datos <- function() {
            -- consulta reventaba con un function age(character varying) does
            -- not exist y la pestana de resultados no abria.
            r.edad_anios,
+           %s AS estado_civil,
            r.vivienda,
            r.dependientes,
            r.tipo_salario,
@@ -540,7 +547,7 @@ res_datos <- function() {
              ORDER BY id_anonimizado, submission_date DESC NULLS LAST, clave DESC) r
       JOIN seguimiento.marco_completo m         ON r.id_anonimizado = m.id_anonimizado
      WHERE m.estado_vinculacion = 'Activo'
-       AND %s IS TRUE", paste(sel, collapse = ",\n           "),
+       AND %s IS TRUE", ecivil, paste(sel, collapse = ",\n           "),
     seg_sql_acepta("r")))
 
   if (nrow(d) == 0) return(d)
@@ -1042,6 +1049,7 @@ RES_DESC_BLOQUES <- list(
       list(v = "sexo",            tipo = "cat"),
       list(v = "edad",            tipo = "cat"),
       list(v = "edad_anios",      tipo = "num", rotulo = "Edad (años)"),
+      list(v = "estado_civil",    tipo = "cat"),
       list(v = "nivel_academico", tipo = "cat"),
       list(v = "estrato",         tipo = "cat"),
       list(v = "vivienda",        tipo = "cat"),

@@ -90,6 +90,11 @@ if (!etapa %in% c("piloto", "reales")) {
 }
 data <- bd_get(sprintf("SELECT * FROM public.odk_respuestas_%s ORDER BY clave", etapa))
 
+# estado_civil volvio al formulario el 2026-10-20. La descarga le agrega la
+# columna a la tabla de ODK la primera vez que corre con el codigo nuevo; hasta
+# entonces la tabla no la tiene y todos quedan sin dato.
+if (!"estado_civil" %in% names(data)) data$estado_civil <- NA_character_
+
 data <- data %>% 
   mutate(across(c(
         ila_p1,            
@@ -1303,6 +1308,11 @@ if (length(raros))
 # El 3 (no binario) se agrego al formulario despues del primer despliegue.
 ETQ_SEXO <- c("1" = "Masculino", "2" = "Femenino", "3" = "No binario")
 
+ETQ_ESTADO_CIVIL <- c(
+  "1" = "Soltero (a)",   "2" = "Casado (a)",  "3" = "Unión libre",
+  "4" = "Separado (a)",  "5" = "Divorciado (a)", "6" = "Viudo (a)",
+  "7" = "Sacerdote / Monja")
+
 ETQ_NIVEL_ACAD <- c(
   "0" = "Ninguno", "1" = "Primaria incompleta", "2" = "Primaria completa",
   "3" = "Bachillerato incompleto", "4" = "Bachillerato completo",
@@ -1353,6 +1363,7 @@ socio <- data.frame(
   edad_anios      = as.integer(floor(as.numeric(
                       difftime(as.Date(data$submission_date),
                                as.Date(data$nacimiento), units = "days")) / 365.25)),
+  estado_civil    = etq(data$estado_civil,    ETQ_ESTADO_CIVIL),
   nivel_academico = etq(data$nivel_academico, ETQ_NIVEL_ACAD),
   estrato         = etq(data$estrato,         ETQ_ESTRATO),
   vivienda        = etq(data$vivienda,        ETQ_VIVIENDA),
@@ -1379,6 +1390,7 @@ TIPO_SOCIO <- c(
   sexo = "text",
   nacimiento = "date",
   edad_anios = "int",
+  estado_civil = "text",
   nivel_academico = "text",
   estrato = "text",
   vivienda = "text",
@@ -1402,7 +1414,7 @@ cols_socio <- names(socio)
 # Si el XLSForm agrega una opcion y aqui no se refleja, etq() la vuelve NA en
 # silencio y el cruce pierde gente sin decir nada. Se compara el numero de
 # vacios de la columna traducida contra el de la original.
-for (v in c(sexo = "sexo",
+for (v in c(sexo = "sexo", estado_civil = "estado_civil",
             nivel_academico = "nivel_academico", estrato = "estrato",
             vivienda = "vivienda", tipo_salario = "tipo_salario")) {
   perdidos <- sum(is.na(socio[[v]])) - sum(is.na(data[[v]]))
