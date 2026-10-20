@@ -115,6 +115,51 @@ tryCatch({
          " (ej.: ODK_URL=https://xxxx.ngrok-free.dev/v1/projects/1)")
   }
   url_base <- paste0(odk_url, "/forms/riesgo_psicosocial.svc/Submissions")
+
+  # --- estado_civil en envios ya descargados ---------------------------------
+  # estado_civil se quito y volvio al formulario el 2026-10-20. Los envios que
+  # ya estaban en la tabla se bajaron sin la columna, y la descarga incremental
+  # no los vuelve a pedir. La primera vez que corre este codigo --la tabla no
+  # tiene la columna-- se agrega y se llena con lo que ODK tenga de cada envio.
+  # Va en una transaccion: si ODK falla a mitad, la columna tampoco queda y se
+  # reintenta en la corrida siguiente. Los envios de antes del cambio del
+  # formulario no tienen el dato en ODK y quedan vacios.
+  if (dbExistsTable(con, tabla_db) &&
+      !"estado_civil" %in% dbListFields(con, tabla_db)) {
+    resp_ec <- httr::RETRY(
+      "GET",
+      paste0(url_base, "?$select=__id,general/estado_civil"),
+      times = 3,
+      httr::authenticate(usr, psw)
+    )
+    httr::stop_for_status(resp_ec)
+    envios_ec <- httr::content(resp_ec)$value
+    ec <- tibble(
+      clave        = vapply(envios_ec, function(x) x[["__id"]], ""),
+      estado_civil = vapply(envios_ec, function(x) {
+        v <- x[["general"]][["estado_civil"]]
+        if (is.null(v)) NA_character_ else as.character(v)
+      }, "")
+    ) %>% filter(!is.na(estado_civil))
+
+    dbWithTransaction(con, {
+      dbExecute(con, sprintf("ALTER TABLE %s ADD COLUMN estado_civil text",
+                             dbQuoteIdentifier(con, tabla_db)))
+      if (nrow(ec) > 0) {
+        dbWriteTable(con, "tmp_estado_civil", ec, temporary = TRUE)
+        n_ec <- dbExecute(con, sprintf(
+          "UPDATE %s t SET estado_civil = e.estado_civil
+             FROM tmp_estado_civil e WHERE t.clave = e.clave",
+          dbQuoteIdentifier(con, tabla_db)))
+      } else {
+        n_ec <- 0L
+      }
+    })
+    cat(sprintf("[INFO] Columna estado_civil agregada a '%s'; %d envios ya descargados la recibieron de ODK.\n",
+                tabla_db, n_ec))
+    # respuestas_procesadas no la tiene todavia: hay que recalificar.
+    estado_salida <- 10L
+  }
   
   url_filtro <- paste0("?$filter=__system/reviewState%20ne%20'rejected'", filtro_fecha)
   
@@ -231,7 +276,10 @@ tryCatch({
         nacimiento,  # marco si esta registrado, si no el año de ODK
         # (ver el mutate de arriba)
         
-        #estado_civil, ya no se usa
+        # Volvio al formulario el 2026-10-20. any_of(): un lote que solo traiga
+        # envios de la version vieja del formulario puede no tener la columna,
+        # y entonces queda vacia en vez de romper la descarga.
+        any_of("estado_civil"),
         # ETQ_ESTADO_CIVIL <- c(
         #   "1" = "Soltero (a)",
         #   "2" = "Casado (a)",

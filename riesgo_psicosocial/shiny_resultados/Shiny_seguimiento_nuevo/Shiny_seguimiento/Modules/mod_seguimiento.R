@@ -451,6 +451,9 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     })
 
     output$no_registrados <- renderUI({
+      # Con INCLUIR_NO_REGISTRADOS=no no cuentan en ninguna parte: completarlos
+      # no cambiaria nada, asi que la lista no se ofrece.
+      if (!seg_incluir_no_registrados()) return(NULL)
       p <- no_registrados()
       if (nrow(p) == 0) return(NULL)
       pendientes <- sum(is.na(p$completado_en))

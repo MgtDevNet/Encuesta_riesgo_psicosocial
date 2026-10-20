@@ -273,6 +273,21 @@ seg_etapa <- function() {
 
 seg_tabla_odk <- function() paste0("odk_respuestas_", seg_etapa())
 
+# Si quien respondio sin estar en el marco cuenta en la app: INCLUIR_NO_REGISTRADOS
+# en docker/.env, si o no. Con `no` marco_completo es solo el marco oficial, asi
+# que esas personas salen del avance, del grafico y de Resultados, y la pestana
+# no muestra su lista. Sus datos siguen en la tabla: volver a `si` las devuelve
+# con lo ya completado. Sin la variable, si (lo de siempre).
+seg_incluir_no_registrados <- function() {
+  v <- tolower(trimws(Sys.getenv("INCLUIR_NO_REGISTRADOS")))
+  if (!nzchar(v)) return(TRUE)
+  if (!v %in% c("si", "no")) {
+    stop("INCLUIR_NO_REGISTRADOS debe ser 'si' o 'no' (esta en '", v, "').",
+         call. = FALSE)
+  }
+  v == "si"
+}
+
 seg_crear_marco_completo <- function() {
   db_exec("
     CREATE TABLE IF NOT EXISTS seguimiento.empleados_no_registrados (
@@ -337,6 +352,12 @@ seg_crear_marco_completo <- function() {
   if (length(actual) && !identical(actual, cols)) {
     db_exec("DROP VIEW IF EXISTS seguimiento.estado_persona")
     db_exec("DROP VIEW IF EXISTS seguimiento.marco_completo")
+  }
+
+  if (!seg_incluir_no_registrados()) {
+    db_exec("CREATE OR REPLACE VIEW seguimiento.marco_completo AS
+             SELECT * FROM seguimiento.marco")
+    return(invisible(TRUE))
   }
 
   db_exec(sprintf("
