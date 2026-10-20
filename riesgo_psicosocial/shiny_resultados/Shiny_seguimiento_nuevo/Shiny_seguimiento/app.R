@@ -187,6 +187,19 @@ server <- function(input, output, session) {
   observeEvent(respuestas_firma(), r$respuestas <- isolate(r$respuestas) + 1,
                ignoreInit = TRUE)
 
+  # Lo mismo con la agenda: la carga desde la app avisa por CIT_CARGAS, pero
+  # agenda_desde_google_sheets.R --cargar (el cron de actualizar_agenda.sh) la
+  # reemplaza desde fuera. seg_cit_guardar() la trunca y la vuelve a escribir,
+  # asi que `xmin` cambia en cada carga aunque el numero de filas sea el mismo.
+  SEG_FIRMA_CITACIONES <- "
+    SELECT count(*) AS n, max(xmin::text::bigint) AS x FROM seguimiento.citaciones"
+  citaciones_firma <- reactivePoll(
+    60 * 1000, session,
+    checkFunc = function() tryCatch(db_get(SEG_FIRMA_CITACIONES), error = function(e) NULL),
+    valueFunc = function() tryCatch(db_get(SEG_FIRMA_CITACIONES), error = function(e) NULL))
+  observeEvent(citaciones_firma(), r$citaciones <- isolate(r$citaciones) + 1,
+               ignoreInit = TRUE)
+
   # Estado de la base: se evalúa una vez por sesión.
   estado_bd <- local({
     conexion <- db_probar()

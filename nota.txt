@@ -30,3 +30,23 @@ Paso 3. Encender cron
 WSL no lo enciende solo:
 
 sudo service cron start
+
+# Agenda de citaciones desde el Google Sheet (inscripciones del Google Form)
+
+cd ~/trabajo/riesgo_psicosocial/descarga_datos_reales
+
+Manual: arma agenda_citaciones.xlsx para subirlo en la Shiny
+(Administracion > Agenda de citaciones):
+
+Rscript agenda_desde_google_sheets.R
+
+Manual directo a la base, sin pasar por la app:
+
+bash actualizar_agenda.sh
+
+Recurrente (cada 30 minutos), en el crontab:
+
+*/30 * * * * /bin/bash /home/mgtdev/trabajo/riesgo_psicosocial/descarga_datos_reales/actualizar_agenda.sh >> /home/mgtdev/trabajo/riesgo_psicosocial/descarga_datos_reales/logs_agenda.txt 2>&1
+
+Ojo: con el cron el Sheet manda. Una agenda subida a mano desde la app se
+reemplaza en la siguiente corrida por lo que diga el Sheet.

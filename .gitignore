@@ -36,3 +36,8 @@ Simulacion_respuestas_ODK.csv
 # Control interno de actualizar_datos.sh
 **/descarga_datos_reales/.calificacion_pendiente
 **/descarga_datos_reales/.actualizar_datos.lock
+
+# --- Agenda armada desde el Google Sheet (lleva nombres) ---
+**/descarga_datos_reales/agenda_citaciones.xlsx
+**/descarga_datos_reales/logs_agenda.txt
+**/descarga_datos_reales/.actualizar_agenda.lock
