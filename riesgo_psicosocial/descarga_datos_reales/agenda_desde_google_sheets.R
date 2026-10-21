@@ -105,8 +105,10 @@ insc$hora_final  <- a_24h(vapply(horas, `[`, "", 2))
 insc$documento   <- trimws(format(insc$`Número de documento de identidad`,
                                   scientific = FALSE, trim = TRUE))
 
-# 5. Cedula -> id anonimizado con el marco
-marco <- db_get("SELECT identificacion, id_anonimizado FROM seguimiento.marco")
+# 5. Cedula -> id anonimizado con el marco. marco_completo y no marco, como en
+#    la app: un no registrado ya completado en la pestana Avance tambien se
+#    cita (su id es la cedula).
+marco <- db_get("SELECT identificacion, id_anonimizado FROM seguimiento.marco_completo")
 insc$id <- marco$id_anonimizado[match(insc$documento, marco$identificacion)]
 
 # 6. La agenda: una fila por persona y franja. Quien se inscribio dos veces en
