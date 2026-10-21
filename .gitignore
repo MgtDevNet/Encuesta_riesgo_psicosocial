@@ -41,3 +41,10 @@ Simulacion_respuestas_ODK.csv
 **/descarga_datos_reales/agenda_citaciones.xlsx
 **/descarga_datos_reales/logs_agenda.txt
 **/descarga_datos_reales/.actualizar_agenda.lock
+
+# --- Documentos de Word: no van a git ---
+*.docx
+*.doc
+*.docm
+*.dotx
+~$*.docx
