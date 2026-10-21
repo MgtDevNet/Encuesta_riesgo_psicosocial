@@ -128,7 +128,10 @@ agenda <- agenda[order(as.Date(agenda$fecha, "%d/%m/%Y"),
 if (nrow(agenda) == 0) stop("Ninguna inscripcion esta en el marco; la agenda no se toca.")
 
 # 7. Resumen
-fuera <- unique(insc[is.na(insc$id), c("documento", "Nombre completo")])
+# Una fila por cedula: quien se inscribio dos veces con el nombre escrito
+# distinto ("Cossio" / "Cossío") es una sola persona.
+fuera <- insc[is.na(insc$id), c("documento", "Nombre completo")]
+fuera <- fuera[!duplicated(fuera$documento), ]
 cat("\nInscripciones en el Sheet:", nrow(insc), "\n")
 cat("Citaciones en la agenda:  ", nrow(agenda), "de", length(unique(agenda$id)), "personas\n")
 print(table(paste(agenda$fecha, agenda$`hora inicio programada`, "-",
