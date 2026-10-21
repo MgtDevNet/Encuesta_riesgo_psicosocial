@@ -144,7 +144,20 @@ mod_seguimiento_ui <- function(id) {
          Shiny.setInputValue('%s', String($(this).attr('data-completar')),
                              {priority: 'event'});
        });",
-      ns("no_registrados"), ns("nr_completar"))))
+      ns("no_registrados"), ns("nr_completar")))),
+    # Los dos recuadros de abajo nacen plegados y se redibujan solos (llegan
+    # respuestas, cambia la agenda): sin recordar en R que se desplegaron, cada
+    # redibujo los volveria a cerrar. El evento 'toggle' de <details> no
+    # burbujea, asi que se escucha el clic en el <summary> y se manda el estado
+    # que va a quedar, el contrario del actual. Mismo patron que en Resultados.
+    tags$script(HTML(sprintf(
+      "$(document).on('click', '#%s details.seg-pleg > summary, #%s details.seg-pleg > summary', function(){
+         var d = $(this).closest('details');
+         Shiny.setInputValue('%s',
+           d.attr('data-plegable') + '|' + (d.prop('open') ? '0' : '1') + '|' + Date.now(),
+           {priority: 'event'});
+       });",
+      ns("citados_dia"), ns("no_registrados"), ns("plegar"))))
   )
 }
 
@@ -364,27 +377,38 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       else as.character(d$dia[1])
     })
 
+    # Que recuadros plegables estan abiertos. Se leen AISLADOS en los render: el
+    # navegador ya abre y cierra el <details> por su cuenta, y lo que hace falta
+    # es recordarlo para la proxima vez que se redibuje.
+    abiertos <- reactiveValues()
+    observeEvent(input$plegar, {
+      x <- strsplit(input$plegar, "|", fixed = TRUE)[[1]]
+      if (length(x) >= 2) abiertos[[x[1]]] <- identical(x[2], "1")
+    })
+
     output$citados_dia <- renderUI({
       d <- dias_citados()
       if (nrow(d) == 0) return(NULL)
       etiquetas <- sprintf("%s · %s sin responder de %s citadas",
                            format(d$dia, "%d/%m/%Y"), fmt_num(d$sin_responder),
                            fmt_num(d$citados))
-      card(
-        class = "shadow-sm mb-3",
-        card_header(tags$b("Quién no contestó, por día de citación")),
-        card_body(
-          div(class = "dia-barra",
-              div(class = "dia-selector",
-                  selectInput(ns("dia"), "Día de la citación", width = "100%",
-                              selectize = FALSE,
-                              choices = stats::setNames(as.character(d$dia), etiquetas),
-                              selected = dia_actual())),
-              div(class = "small text-muted",
-                  "Citadas ese día que todavía no han enviado nada. ",
-                  "Respeta el filtro de unidad de arriba.")),
-          uiOutput(ns("tabla_dia"))
-        )
+      card_plegable(
+        "citados_dia", isolate(abiertos$citados_dia),
+        "Quién no contestó, por día de citación",
+        # Plegado no es escondido: la cabecera dice como va el ultimo dia.
+        sprintf("· último día %s: %s sin responder de %s citadas",
+                format(d$dia[1], "%d/%m/%Y"), fmt_num(d$sin_responder[1]),
+                fmt_num(d$citados[1])),
+        div(class = "dia-barra",
+            div(class = "dia-selector",
+                selectInput(ns("dia"), "Día de la citación", width = "100%",
+                            selectize = FALSE,
+                            choices = stats::setNames(as.character(d$dia), etiquetas),
+                            selected = dia_actual())),
+            div(class = "small text-muted",
+                "Citadas ese día que todavía no han enviado nada. ",
+                "Respeta el filtro de unidad de arriba.")),
+        uiOutput(ns("tabla_dia"))
       )
     })
 
@@ -447,6 +471,13 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       }
     )
 
+    # Viven dentro de un <details> plegado. Shiny no dibuja una salida oculta, y
+    # abrir un <details> no le avisa de que ya se ve: sin esto el recuadro se
+    # desplegaba en blanco.
+    for (sal in c("tabla_dia", "bajar_dia")) {
+      outputOptions(output, sal, suspendWhenHidden = FALSE)
+    }
+
     # --- quien respondio sin estar en el marco -------------------------------
     # Ver seg_crear_marco_completo(). Cada vez que llegan respuestas se da de
     # alta a los nuevos; la lista trae a todos, completos o no, para que se vea
@@ -464,22 +495,23 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       p <- no_registrados()
       if (nrow(p) == 0) return(NULL)
       pendientes <- sum(is.na(p$completado_en))
-      card(
-        class = "shadow-sm mb-3",
-        card_header(tags$b("Personas que respondieron sin estar en el marco"),
-                    span(class = "text-muted small", paste("· etapa", seg_etapa()))),
-        card_body(
-          div(class = "small text-muted mb-2",
-              "Contestaron la encuesta pero su cédula no está en el marco muestral. ",
-              "Mientras no se completen su dependencia, tipo de vinculación y nivel ",
-              "del empleo, no cuentan en el avance ni aparecen en Resultados. ",
-              tags$b("Una vez guardados, los datos quedan fijos.")),
-          div(class = "small mb-2",
-              if (pendientes > 0)
-                sprintf("%s de %s por completar.", fmt_num(pendientes), fmt_num(nrow(p)))
-              else "Todas tienen los datos completos."),
-          tabla_no_registrados(p)
-        )
+      card_plegable(
+        "no_registrados", isolate(abiertos$no_registrados),
+        "Personas que respondieron sin estar en el marco",
+        sprintf("· etapa %s · %s", seg_etapa(),
+                if (pendientes > 0) sprintf("%s de %s por completar",
+                                            fmt_num(pendientes), fmt_num(nrow(p)))
+                else "todas completas"),
+        div(class = "small text-muted mb-2",
+            "Contestaron la encuesta pero su cédula no está en el marco muestral. ",
+            "Mientras no se completen su dependencia, tipo de vinculación y nivel ",
+            "del empleo, no cuentan en el avance ni aparecen en Resultados. ",
+            tags$b("Una vez guardados, los datos quedan fijos.")),
+        div(class = "small mb-2",
+            if (pendientes > 0)
+              sprintf("%s de %s por completar.", fmt_num(pendientes), fmt_num(nrow(p)))
+            else "Todas tienen los datos completos."),
+        tabla_no_registrados(p)
       )
     })
 
@@ -1047,6 +1079,22 @@ caja_indicador <- function(nombre, pct, num, unidad, den = NULL, den_unidad = NU
     div(class = "kpi-pie", sprintf("%s %s", fmt_num(num), unidad)),
     if (!is.null(den)) div(class = "kpi-pie", sprintf("%s %s", fmt_num(den), den_unidad))
   )
+}
+
+# Recuadro que nace PLEGADO y se despliega con un clic en la cabecera. Es una
+# tarjeta de Bootstrap con un <details> dentro: la cabecera es el <summary>.
+# `abierto` es lo que el usuario dejo la ultima vez (ver input$plegar), para
+# que un redibujo no lo cierre. `resumen` va al lado del titulo, para que
+# plegado no sea escondido.
+card_plegable <- function(id, abierto, titulo, resumen = NULL, ...) {
+  div(class = "card shadow-sm mb-3",
+      tags$details(
+        class = "seg-pleg", `data-plegable` = id,
+        open = if (isTRUE(abierto)) NA,
+        tags$summary(class = "card-header seg-pleg-sum",
+                     tags$b(titulo),
+                     if (!is.null(resumen)) span(class = "text-muted small", resumen)),
+        div(class = "card-body", ...)))
 }
 
 # Cajon de una forma del cuestionario: el numero grande sigue siendo cuanta

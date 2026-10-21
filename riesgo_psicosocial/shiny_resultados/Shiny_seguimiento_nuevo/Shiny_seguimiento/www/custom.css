@@ -143,6 +143,22 @@
 .kpi-linea-pct { font-weight: 600; color: var(--bs-body-color); }
 .kpi-linea-num { min-width: 3.1rem; }
 
+/* --- Recuadros plegables (Quién no contestó, no registrados) ---------------
+   Nacen plegados: <details> sin `open`, con la cabecera de la tarjeta como
+   <summary>. La flecha gira al abrir, como en el descriptivo de Resultados. */
+.seg-pleg-sum {
+  cursor: pointer; list-style: none;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.5rem;
+}
+.seg-pleg-sum::-webkit-details-marker { display: none; }
+.seg-pleg-sum::before {
+  content: "\25B8"; color: var(--bs-secondary-color);
+  display: inline-block; transition: transform .15s;
+}
+.seg-pleg[open] > .seg-pleg-sum::before { transform: rotate(90deg); }
+.seg-pleg:not([open]) > .seg-pleg-sum { border-bottom: 0; }
+.seg-pleg-sum:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
+
 /* --- Quién no contestó, por día de citación --- */
 .dia-barra {
   display: flex;
