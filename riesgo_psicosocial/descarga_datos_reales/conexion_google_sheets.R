@@ -8,7 +8,7 @@ gs4_deauth()
 # La llave NO va a git (ver .gitignore): se pasa por fuera, como el .Renviron.
 # Su ruta va en el .Renviron de esta carpeta, en la linea
 #   GOOGLE_SA_KEY=<ruta completa al archivo .json>
-readRenviron(r"(\\wsl.localhost\Ubuntu\home\mgtdev\trabajo\riesgo_psicosocial\descarga_datos_reales\.Renviron)")
+readRenviron("/home/decm/Encuesta_riesgo_psicosocial/riesgo_psicosocial/descarga_datos_reales/.Renviron")
 llave_google <- Sys.getenv("GOOGLE_SA_KEY")
 if (!nzchar(llave_google) || !file.exists(llave_google)) {
   stop("Falta GOOGLE_SA_KEY en el .Renviron, o el archivo no existe: '", llave_google, "'")
@@ -24,6 +24,8 @@ datos_formulario <- read_sheet(sheet_id, sheet = "Respuestas de formulario 1")
 
 # Visualizar los datos
 head(datos_formulario)
+
+View(datos_formulario)
 
 # 
 # Campus 
