@@ -1064,17 +1064,29 @@ seg_personas <- function(dependencia) {
 # modulo-- y solo dias cuya hora final ya paso: antes de eso nadie esta en mora.
 # `tipos` es el filtro de unidades de la barra de arriba.
 
-# Condicion de poblacion compartida por las dos consultas ($1..$2).
-SEG_DIA_POBLACION <- "
-  m.estado_vinculacion = 'Activo'
-  AND ($1::boolean IS FALSE OR m.tipo_dependencia = ANY(string_to_array($2, chr(1))))"
+# Citados FUERA del marco: todas las cedulas del Google Sheet quedan citadas
+# (ver descarga_datos_reales/agenda_desde_google_sheets.R), y quien no esta en
+# el marco queda con la cedula como id. Cuentan como citados solo en el total
+# de la universidad --sin filtro de unidad ni buscador--, porque no tienen
+# dependencia ni forma a la cual sumarlos. Los encuestados no cambian: se
+# cuentan cuando se les completa en la pestana Avance (no registrados).
+SEG_CIT_SIN_MARCO <- "
+  NOT EXISTS (SELECT 1 FROM seguimiento.marco_completo mm
+               WHERE mm.id_anonimizado = c.id_anonimizado)"
+
+# Condicion de poblacion compartida por las dos consultas ($1..$2). La fila de
+# m es NULL para quien no esta en el marco: entra solo sin filtro de unidades.
+SEG_DIA_POBLACION <- sprintf("
+  ((m.id_anonimizado IS NOT NULL AND m.estado_vinculacion = 'Activo'
+    AND ($1::boolean IS FALSE OR m.tipo_dependencia = ANY(string_to_array($2, chr(1)))))
+   OR ($1::boolean IS FALSE AND %s))", SEG_CIT_SIN_MARCO)
 
 # Sin ningun envio: cualquier respuesta con fecha cuenta, completa o no, porque
 # el recuadro pregunta quien no contesto, no quien contesto bien.
 SEG_DIA_SIN_ENVIO <- "
   -- NOT EXISTS (SELECT 1 FROM seguimiento.respuestas r
   NOT EXISTS (SELECT 1 FROM public.respuestas_procesadas r
-               WHERE r.id_anonimizado = m.id_anonimizado
+               WHERE r.id_anonimizado = c.id_anonimizado
                  AND r.submission_date IS NOT NULL)"
 
 # Un dia por fila, del mas reciente al mas antiguo: cuantas personas se citaron y
@@ -1082,9 +1094,9 @@ SEG_DIA_SIN_ENVIO <- "
 seg_dias_citados <- function(tipos = NULL, ahora = seg_ahora()) {
   db_get(sprintf("
     WITH cit AS (
-      SELECT c.fecha, m.id_anonimizado, (%s) AS sin_envio
+      SELECT c.fecha, c.id_anonimizado, (%s) AS sin_envio
         FROM seguimiento.citaciones c
-        JOIN seguimiento.marco_completo m USING (id_anonimizado)
+        LEFT JOIN seguimiento.marco_completo m ON m.id_anonimizado = c.id_anonimizado
        WHERE c.fecha + c.hora_fin <= $3::timestamp AND %s
     )
     SELECT fecha AS dia,
@@ -1102,32 +1114,33 @@ seg_dias_citados <- function(tipos = NULL, ahora = seg_ahora()) {
 # que ya hizo otra persona--.
 seg_citados_dia <- function(dia, tipos = NULL, ahora = seg_ahora()) {
   db_get(sprintf("
-    SELECT m.id_anonimizado,
-           m.nombre,
-           m.dependencia,
+    SELECT c.id_anonimizado,
+           COALESCE(m.nombre, max(c.nombre))           AS nombre,
+           COALESCE(m.dependencia, 'Fuera del marco') AS dependencia,
            m.tipo_vinculacion,
            string_agg(DISTINCT to_char(c.hora_inicio, 'HH24:MI') || '-' ||
                                to_char(c.hora_fin, 'HH24:MI'), ', ') AS franjas,
            max(c.link) AS link,
            (SELECT count(*) FROM seguimiento.citaciones cc
-             WHERE cc.id_anonimizado = m.id_anonimizado
+             WHERE cc.id_anonimizado = c.id_anonimizado
                AND cc.fecha + cc.hora_fin <= $4::timestamp)::int AS citaciones,
            (SELECT count(*) FROM seguimiento.contactos k
-             WHERE k.id_anonimizado = m.id_anonimizado)::int AS contactos,
+             WHERE k.id_anonimizado = c.id_anonimizado)::int AS contactos,
            (SELECT k.fecha FROM seguimiento.contactos k
-             WHERE k.id_anonimizado = m.id_anonimizado
+             WHERE k.id_anonimizado = c.id_anonimizado
              ORDER BY k.fecha DESC, k.id DESC LIMIT 1) AS ultimo_contacto,
            (SELECT k.resultado FROM seguimiento.contactos k
-             WHERE k.id_anonimizado = m.id_anonimizado
+             WHERE k.id_anonimizado = c.id_anonimizado
              ORDER BY k.fecha DESC, k.id DESC LIMIT 1) AS ultimo_resultado
       FROM seguimiento.citaciones c
-      JOIN seguimiento.marco_completo m USING (id_anonimizado)
+      LEFT JOIN seguimiento.marco_completo m ON m.id_anonimizado = c.id_anonimizado
      WHERE c.fecha = $3::date AND c.fecha + c.hora_fin <= $4::timestamp
        AND %s AND %s
      -- Todas las columnas de m y no solo el id: marco_completo es una vista y
-     -- no tiene la llave primaria que dejaba a Postgres deducir el resto.
-     GROUP BY m.id_anonimizado, m.nombre, m.dependencia, m.tipo_vinculacion
-     ORDER BY m.dependencia, m.id_anonimizado", SEG_DIA_POBLACION, SEG_DIA_SIN_ENVIO),
+     -- no tiene la llave primaria que dejaba a Postgres deducir el resto. Quien
+     -- no esta en el marco trae el nombre de la agenda y va al final.
+     GROUP BY c.id_anonimizado, m.nombre, m.dependencia, m.tipo_vinculacion
+     ORDER BY m.dependencia NULLS LAST, c.id_anonimizado", SEG_DIA_POBLACION, SEG_DIA_SIN_ENVIO),
     params = list(length(tipos) > 0, pg_lista(tipos), as.character(dia), ahora))
 }
 
@@ -1238,7 +1251,7 @@ SEG_TZ <- "America/Bogota"
 #
 # Las efectivas son un subconjunto de los encuestados CON LA MISMA FECHA: el
 # consentimiento se contesta en el mismo envio, asi que no tiene un dia propio.
-seg_serie <- function(dependencias = NULL, ahora = seg_ahora()) {
+seg_serie <- function(dependencias = NULL, ahora = seg_ahora(), sin_marco = FALSE) {
   usar_dep <- length(dependencias) > 0
   db_get(sprintf("
     WITH pob AS (
@@ -1260,8 +1273,9 @@ seg_serie <- function(dependencias = NULL, ahora = seg_ahora()) {
     cita AS (
       SELECT c.id_anonimizado, min(c.fecha) AS dia_cita
         FROM seguimiento.citaciones c
-        JOIN pob USING (id_anonimizado)
        WHERE c.fecha + c.hora_fin <= $4::timestamp
+         AND (c.id_anonimizado IN (SELECT id_anonimizado FROM pob)
+              OR ($5::boolean AND %s))
        GROUP BY c.id_anonimizado
     ),
     ev AS (
@@ -1285,8 +1299,8 @@ seg_serie <- function(dependencias = NULL, ahora = seg_ahora()) {
       FROM dias d
       JOIN ev e ON e.dia = d.dia OR e.dia_cita = d.dia
      GROUP BY d.dia
-     ORDER BY d.dia", seg_sql_efectiva()),
-    params = list(usar_dep, pg_lista(dependencias), SEG_TZ, ahora))
+     ORDER BY d.dia", seg_sql_efectiva(), SEG_CIT_SIN_MARCO),
+    params = list(usar_dep, pg_lista(dependencias), SEG_TZ, ahora, isTRUE(sin_marco)))
 }
 
 
@@ -1316,7 +1330,8 @@ seg_serie <- function(dependencias = NULL, ahora = seg_ahora()) {
 # La poblacion son los ACTIVOS del marco, igual que en todo el modulo. El
 # denominador "marco" de Cobertura Esperados sale de seg_marco_total(), que
 # cuenta esa misma poblacion: hoy son los 3.357 de siempre.
-seg_serie_indicadores <- function(dependencias = NULL, ahora = seg_ahora()) {
+seg_serie_indicadores <- function(dependencias = NULL, ahora = seg_ahora(),
+                                  sin_marco = FALSE) {
   usar_dep <- length(dependencias) > 0
   db_get(sprintf("
     WITH pob AS (
@@ -1338,8 +1353,9 @@ seg_serie_indicadores <- function(dependencias = NULL, ahora = seg_ahora()) {
     cita AS (
       SELECT c.id_anonimizado, min(c.fecha) AS dia_cit
         FROM seguimiento.citaciones c
-        JOIN pob USING (id_anonimizado)
        WHERE c.fecha + c.hora_fin <= $4::timestamp
+         AND (c.id_anonimizado IN (SELECT id_anonimizado FROM pob)
+              OR ($5::boolean AND %s))
        GROUP BY c.id_anonimizado
     ),
     ev AS (
@@ -1359,8 +1375,8 @@ seg_serie_indicadores <- function(dependencias = NULL, ahora = seg_ahora()) {
       FROM dias d
       JOIN ev e ON e.dia_env = d.dia OR e.dia_cit = d.dia
      GROUP BY d.dia
-     ORDER BY d.dia", seg_sql_efectiva()),
-    params = list(usar_dep, pg_lista(dependencias), SEG_TZ, ahora))
+     ORDER BY d.dia", seg_sql_efectiva(), SEG_CIT_SIN_MARCO),
+    params = list(usar_dep, pg_lista(dependencias), SEG_TZ, ahora, isTRUE(sin_marco)))
 }
 
 
@@ -1380,7 +1396,7 @@ seg_serie_indicadores <- function(dependencias = NULL, ahora = seg_ahora()) {
 # `efectivas` usa la misma regla que seg_serie_indicadores() (seg_sql_efectiva()),
 # asi que el numero grande del cajon y el de la cabecera del grafico de
 # Efectividad no se pueden contradecir.
-seg_conteos_forma <- function(dependencias = NULL, ahora = seg_ahora()) {
+seg_conteos_forma <- function(dependencias = NULL, ahora = seg_ahora(), sin_marco = FALSE) {
   usar_dep <- length(dependencias) > 0
   db_get(sprintf("
     WITH pob AS (
@@ -1414,8 +1430,13 @@ seg_conteos_forma <- function(dependencias = NULL, ahora = seg_ahora()) {
            (count(*) FILTER (WHERE citado))::int     AS citados
       FROM p
      GROUP BY forma
-     ORDER BY forma", seg_sql_efectiva(), SEG_FORMA, SEG_FORMA_ODK),
-    params = list(usar_dep, pg_lista(dependencias), ahora))
+    UNION ALL
+    -- Los citados fuera del marco, sin forma: suman al total y no a A ni a B.
+    SELECT NULL, 0, 0, 0, count(DISTINCT c.id_anonimizado)::int
+      FROM seguimiento.citaciones c
+     WHERE $4::boolean AND c.fecha + c.hora_fin <= $3::timestamp AND %4$s
+     ORDER BY 1", seg_sql_efectiva(), SEG_FORMA, SEG_FORMA_ODK, SEG_CIT_SIN_MARCO),
+    params = list(usar_dep, pg_lista(dependencias), ahora, isTRUE(sin_marco)))
 }
 
 
@@ -1427,8 +1448,9 @@ seg_conteos_forma <- function(dependencias = NULL, ahora = seg_ahora()) {
 # raya. Un cero afirmaria que la razon se midio y dio cero, cuando lo que pasa
 # es que no hay con que medirla --una seleccion sin nadie citado todavia-- y es
 # la misma regla que sigue pct_formas().
-seg_totales_indicadores <- function(dependencias = NULL, ahora = seg_ahora()) {
-  x <- seg_conteos_forma(dependencias, ahora)
+seg_totales_indicadores <- function(dependencias = NULL, ahora = seg_ahora(),
+                                    sin_marco = FALSE) {
+  x <- seg_conteos_forma(dependencias, ahora, sin_marco)
   cols <- c("marco", "encuestados", "efectivas", "citados")
 
   # LAS FORMULAS. Viven aqui y en INDICADORES (mod_seguimiento.R), que tiene que

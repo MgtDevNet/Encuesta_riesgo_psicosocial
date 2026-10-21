@@ -21,9 +21,11 @@ library(RPostgres)
 #
 # Cada inscripcion trae la cedula y la franja elegida, en un texto como
 #   "Martes, 20/10/2026 10:30 a. m. – 11:30 a. m."
-# La cedula se cambia por el id anonimizado con el marco de la base, porque la
-# agenda trabaja solo con id_anonimizado. Quien no esta en el marco no entra:
-# se lista al final para revisarlo a mano.
+# Todas las cedulas del Sheet quedan citadas, esten o no en el marco. La
+# cedula se cambia por el id anonimizado del marco, porque la agenda trabaja
+# con id_anonimizado; quien no esta en el marco queda con la cedula como id,
+# que es el mismo id que le da la app si responde en ODK (no registrados), asi
+# que no se cuenta dos veces. Se listan al final para revisarlos a mano.
 #
 # La lectura y el guardado son los mismos de la app (seg_cit_normalizar y
 # seg_cit_guardar en R/utils_seguimiento.R): la carga recurrente valida igual
@@ -105,11 +107,19 @@ insc$hora_final  <- a_24h(vapply(horas, `[`, "", 2))
 insc$documento   <- trimws(format(insc$`Número de documento de identidad`,
                                   scientific = FALSE, trim = TRUE))
 
-# 5. Cedula -> id anonimizado con el marco. marco_completo y no marco, como en
-#    la app: un no registrado ya completado en la pestana Avance tambien se
-#    cita (su id es la cedula).
+# 5. Cedula -> id anonimizado con el marco (marco_completo, como en la app).
+#    Quien no esta queda citado con la cedula como id. Una fila sin cedula no
+#    se puede citar a nadie.
+sin_doc <- is.na(insc$`Número de documento de identidad`) | insc$documento %in% c("", "NA")
+if (any(sin_doc)) {
+  cat("Filas del Sheet sin cedula (no entran):", paste(which(sin_doc) + 1, collapse = ", "), "\n")
+  insc <- insc[!sin_doc, ]
+}
 marco <- db_get("SELECT identificacion, id_anonimizado FROM seguimiento.marco_completo")
-insc$id <- marco$id_anonimizado[match(insc$documento, marco$identificacion)]
+insc$en_marco <- insc$documento %in% marco$identificacion
+insc$id <- ifelse(insc$en_marco,
+                  marco$id_anonimizado[match(insc$documento, marco$identificacion)],
+                  insc$documento)
 
 # 6. La agenda: una fila por persona y franja. Quien se inscribio dos veces en
 #    la misma franja queda una sola vez; en franjas distintas, queda citado en
@@ -122,24 +132,23 @@ agenda <- data.frame(
   persona                  = insc$`Nombre completo`,
   link                     = LINK_SESION,
   check.names = FALSE, stringsAsFactors = FALSE)
-agenda <- agenda[!is.na(agenda$id), ]
 agenda <- agenda[!duplicated(agenda[, c("fecha", "hora inicio programada",
                                         "hora final programada", "id")]), ]
 agenda <- agenda[order(as.Date(agenda$fecha, "%d/%m/%Y"),
                        agenda$`hora inicio programada`, agenda$persona), ]
-if (nrow(agenda) == 0) stop("Ninguna inscripcion esta en el marco; la agenda no se toca.")
+if (nrow(agenda) == 0) stop("El Sheet no trae ninguna inscripcion con cedula; la agenda no se toca.")
 
 # 7. Resumen
 # Una fila por cedula: quien se inscribio dos veces con el nombre escrito
 # distinto ("Cossio" / "Cossío") es una sola persona.
-fuera <- insc[is.na(insc$id), c("documento", "Nombre completo")]
+fuera <- insc[!insc$en_marco, c("documento", "Nombre completo")]
 fuera <- fuera[!duplicated(fuera$documento), ]
 cat("\nInscripciones en el Sheet:", nrow(insc), "\n")
 cat("Citaciones en la agenda:  ", nrow(agenda), "de", length(unique(agenda$id)), "personas\n")
 print(table(paste(agenda$fecha, agenda$`hora inicio programada`, "-",
                   agenda$`hora final programada`)))
 if (nrow(fuera)) {
-  cat("\nNo estan en el marco (no entran en la agenda):", nrow(fuera), "\n")
+  cat("\nNo estan en el marco (citados con la cedula como id):", nrow(fuera), "\n")
   print(fuera, row.names = FALSE)
 }
 

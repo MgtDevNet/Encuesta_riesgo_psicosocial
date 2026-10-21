@@ -201,6 +201,10 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       a[grepl(to_key(b), to_key(a$dependencia), fixed = TRUE), , drop = FALSE]
     })
 
+    # Sin filtro de unidades ni buscador se mira la universidad entera, y solo
+    # entonces cuentan los citados fuera del marco (ver SEG_CIT_SIN_MARCO).
+    sin_filtro <- reactive(length(input$tipos) == 0 && !nzchar(buscar()))
+
     avance <- reactive({
       a <- avance_filtrado()
       # Menor avance primero (lo urgente arriba); las demás, de mayor a menor.
@@ -217,7 +221,9 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     # --- fila de indicadores -------------------------------------------------
 
     # Las dos formas van pegadas a "Encuestados" porque lo descomponen: A + B es
-    # exactamente ese numero, y lo mismo pasa con sus efectivas y sus citadas.
+    # exactamente ese numero, y lo mismo pasa con sus efectivas. Con las citadas
+    # no: sin filtro, el total suma tambien a los citados fuera del marco, que
+    # no tienen forma.
     # Dentro de cada una van los tres indicadores de ESA forma, que es de donde
     # sale la pregunta util: si A va al 63% de efectividad y B al 58%, el campo
     # esta rindiendo distinto en las dos y hay que mirar por que.
@@ -238,7 +244,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
                     pct_no_efectivas = NA_real_, cob_citados = NA_real_,
                     cob_esperados = NA_real_)
       ti <- if (nrow(a) == 0) list(total = ceros, A = ceros, B = ceros)
-            else seg_totales_indicadores(sort(a$dependencia))
+            else seg_totales_indicadores(sort(a$dependencia), sin_marco = sin_filtro())
 
       caja <- function(valor, etiqueta, clase = "") {
         div(class = "kpi-caja",
@@ -315,7 +321,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       # Avance es la tarjeta de siempre; los tres indicadores comparten forma y
       # solo se diferencian en la formula que les pasa INDICADORES.
       if (is.null(ind)) {
-        serie <- seg_serie(deps)
+        serie <- seg_serie(deps, sin_marco = sin_filtro())
         meta  <- sum(a$planeado)
         if (sem) {
           grafico_semanas(seg_semanas(serie, desde = inicio_campo()), meta,
@@ -324,7 +330,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
           grafico_acumulado(serie, meta, control = ctrl)
         }
       } else {
-        per <- seg_periodos(seg_serie_indicadores(deps),
+        per <- seg_periodos(seg_serie_indicadores(deps, sin_marco = sin_filtro()),
                             por = if (sem) "semana" else "dia",
                             desde = inicio_campo())
         grafico_indicador(per, ind, marco = seg_marco_total(deps),
@@ -2698,7 +2704,7 @@ mod_informe_server <- function(id, r = reactiveValues()) {
         filtros <- c(
           if (length(input$tipos)) paste("Unidad:", paste(input$tipos, collapse = ", ")))
         informe_word(seg_avance(input$tipos), archivo, filtros,
-                     seg_inicio_campo())
+                     seg_inicio_campo(), sin_marco = length(input$tipos) == 0)
       }
     )
   })
@@ -2786,7 +2792,8 @@ inf_flex <- function(df, pesos = rep(1, ncol(df))) {
   flextable::set_table_properties(ft, layout = "fixed")
 }
 
-informe_word <- function(a, archivo, filtros = character(0), desde = NULL) {
+informe_word <- function(a, archivo, filtros = character(0), desde = NULL,
+                         sin_marco = FALSE) {
   deps  <- sort(a$dependencia)
   vacio <- nrow(a) == 0
   t     <- seg_totales(a)
@@ -2796,9 +2803,9 @@ informe_word <- function(a, archivo, filtros = character(0), desde = NULL) {
                                         no_efectivas = 0L, cob_citados = NA_real_,
                                         cob_esperados = NA_real_, efectividad = NA_real_,
                                         pct_no_efectivas = NA_real_))
-           else seg_totales_indicadores(deps)
+           else seg_totales_indicadores(deps, sin_marco = sin_marco)
   marco <- if (vacio) 0L else seg_marco_total(deps)
-  serie <- if (vacio) NULL else seg_serie_indicadores(deps)
+  serie <- if (vacio) NULL else seg_serie_indicadores(deps, sin_marco = sin_marco)
   sem   <- inf_tabla_periodos(seg_periodos(serie, "semana", desde = desde), marco, TRUE)
   dia   <- inf_tabla_periodos(seg_periodos(serie, "dia",    desde = desde), marco, FALSE)
 
