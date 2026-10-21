@@ -48,3 +48,6 @@ Simulacion_respuestas_ODK.csv
 *.docm
 *.dotx
 ~$*.docx
+
+# --- Instrucciones locales para el servidor ---
+PASOS_SERVIDOR.txt
