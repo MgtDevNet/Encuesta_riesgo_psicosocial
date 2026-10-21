@@ -1209,3 +1209,92 @@ res_desc_cruce_pct <- function(n, modo = "fila") {
   dimnames(p) <- dimnames(n)
   p
 }
+
+
+# --- vista para que los psicologos descarguen las respuestas ------------------
+# public.respuestas_procesadas_exportacion: una fila por envio de
+# respuestas_procesadas, sin las personas borradas desde la app y sin las
+# columnas de control (clave, fechas, duracion, completa, acepta, encuestados,
+# resultado_final_persona). Los rotulos son los mismos de esta pestaña.
+#
+# Aqui SI se funden A y B en una columna: la fila lleva su Forma, que es lo que
+# hace falta para no comparar un baremo con el otro. Las tres dimensiones que
+# solo tiene la A quedan vacias en quien contesto la B. El orden es el del
+# manual: cada dominio seguido de sus dimensiones (RES_DOM_DIMS).
+#
+# conectar_bd.R la borra antes de reescribir la tabla y la vuelve a crear con
+# esta misma funcion, como a seguimiento.estado_persona.
+RES_VISTA_EXPORTACION <- "public.respuestas_procesadas_exportacion"
+
+res_crear_vista_exportacion <- function() {
+  hay <- function(esquema, tabla) isTRUE(nrow(db_get(
+    "SELECT 1 FROM information_schema.tables
+      WHERE table_schema = $1 AND table_name = $2",
+    params = list(esquema, tabla))) > 0)
+  if (!hay("public", "respuestas_procesadas") ||
+      !hay("seguimiento", "personas_borradas")) {
+    return(invisible(FALSE))
+  }
+
+  col <- function(expr, rotulo) {
+    if (nchar(rotulo, type = "bytes") > 63)
+      stop("Rotulo de mas de 63 bytes, Postgres lo cortaria: ", rotulo)
+    sprintf("%s AS %s", expr, DBI::dbQuoteIdentifier(DBI::ANSI(), rotulo))
+  }
+  # Una forma tiene su columna y la otra la suya; nunca las dos llenas. La
+  # forma va en medio en dimensiones y dominios (clas_dim_a_claridad_rol) y al
+  # final en los totales (clas_total_intra_a): el patron lleva un %s.
+  fundida <- function(patron, dim = "") {
+    if (dim %in% RES_SOLO_A) return(sprintf(patron, "a"))
+    sprintf("COALESCE(%s, %s)", sprintf(patron, "a"), sprintf(patron, "b"))
+  }
+
+  intra <- unlist(lapply(names(RES_DOM_DIMS), function(dm) c(
+    col(fundida(paste0("clas_dom_%s_", dm)), paste("Dom.", RES_DOMS[[dm]])),
+    vapply(RES_DOM_DIMS[[dm]], function(d)
+      col(fundida(paste0("clas_dim_%s_", d), d), paste("Dim.", RES_DIMS[[d]])), ""))))
+
+  extra <- vapply(names(RES_EXTRA), function(d)
+    col(paste0("clas_dim_ex_", d), paste("Extra.", RES_EXTRA[[d]])), "")
+
+  columnas <- c(
+    col("id_anonimizado",     "Cédula"),
+    col("forma_cuestionario", "Forma"),
+    col("sexo",               "Sexo"),
+    col("nacimiento",         "Fecha de nacimiento"),
+    col("edad_anios",         "Edad"),
+    col("estado_civil",       "Estado civil"),
+    col("nivel_academico",    "Nivel académico"),
+    col("estrato",            "Estrato"),
+    col("vivienda",           "Tipo de vivienda"),
+    col("dependientes",       "Personas a cargo"),
+    # Vienen como codigos DANE (05, 05001); por ahora no se exportan.
+    # col("departamento",     "Departamento de residencia"),
+    # col("ciudad",           "Municipio de residencia"),
+    # col("departamento_lab", "Departamento donde trabaja"),
+    # col("ciudad_lab",       "Municipio donde trabaja"),
+    col("anos_empresa",       "Años en la universidad"),
+    col("cargo",              "Cargo"),
+    col("anos_cargo",         "Años en el cargo"),
+    col("area",               "Área"),
+    col("horas_diarias",      "Horas diarias de trabajo"),
+    col("tipo_salario",       "Tipo de salario"),
+    intra,
+    col(fundida("clas_total_intra_%s"),      "Total intralaboral"),
+    extra,
+    col("clas_total_extra",               "Total extralaboral"),
+    col(fundida("clas_total_intraextra_%s"), "Total intralaboral + extralaboral"),
+    col("clas_total_estres",              "Estrés"))
+
+  # CREATE OR REPLACE VIEW no deja quitar ni renombrar columnas: se rehace.
+  db_exec(sprintf("DROP VIEW IF EXISTS %s", RES_VISTA_EXPORTACION))
+  db_exec(sprintf("
+    CREATE VIEW %s AS
+    SELECT %s
+      FROM public.respuestas_procesadas r
+     WHERE NOT EXISTS (SELECT 1 FROM seguimiento.personas_borradas b
+                        WHERE b.id_anonimizado = r.id_anonimizado)
+     ORDER BY r.forma_cuestionario, r.id_anonimizado",
+    RES_VISTA_EXPORTACION, paste(columnas, collapse = ",\n           ")))
+  invisible(TRUE)
+}

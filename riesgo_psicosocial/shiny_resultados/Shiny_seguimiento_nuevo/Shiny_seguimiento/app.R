@@ -212,6 +212,7 @@ server <- function(input, output, session) {
         auth_init_db()
         cto_init_db()
         seg_init_db()
+        res_crear_vista_exportacion()
 
         # Que no haya usuarios NO es un problema de arranque: de eso se
         # encarga el formulario de primer arranque de mod_auth.

@@ -1539,6 +1539,9 @@ bd_exec("BEGIN")
 # Se vuelve a crear mas abajo, dentro de esta misma transaccion: quien consulte
 # la base mientras corre la carga nunca ve la vista desaparecida.
 bd_exec("DROP VIEW IF EXISTS seguimiento.estado_persona")
+# Lo mismo con la vista de exportacion para los psicologos
+# (res_crear_vista_exportacion() en R/utils_resultados.R).
+bd_exec("DROP VIEW IF EXISTS public.respuestas_procesadas_exportacion")
 
 bd_exec("DROP TABLE IF EXISTS public.respuestas_procesadas")
 
@@ -1593,6 +1596,11 @@ sys.source("R/utils_seguimiento.R", envir = vista, keep.source = FALSE)
 if (!isTRUE(vista$seg_crear_vista_estado())) {
   cat("AVISO: seguimiento.estado_persona no se creo (faltan seguimiento.contactos",
       "o seguimiento.citaciones); la app la creara al arrancar.\n")
+}
+sys.source("R/utils_resultados.R", envir = vista, keep.source = FALSE)
+if (!isTRUE(vista$res_crear_vista_exportacion())) {
+  cat("AVISO: public.respuestas_procesadas_exportacion no se creo (falta",
+      "seguimiento.personas_borradas); la app la creara al arrancar.\n")
 }
 
 bd_exec("COMMIT")
