@@ -134,6 +134,14 @@ agenda <- data.frame(
   check.names = FALSE, stringsAsFactors = FALSE)
 agenda <- agenda[!duplicated(agenda[, c("fecha", "hora inicio programada",
                                         "hora final programada", "id")]), ]
+# Quien se borro desde la app (Avance > Borrar) no se vuelve a citar aunque
+# siga en el Sheet. seg_cit_guardar() tambien lo saca, pero se quita aqui para
+# que la comparacion con la base no vea un cambio en cada corrida.
+borradas <- tryCatch(
+  db_get("SELECT id_anonimizado FROM seguimiento.personas_borradas")$id_anonimizado,
+  error = function(e) character(0))
+n_borradas <- length(unique(agenda$id[agenda$id %in% borradas]))
+agenda <- agenda[!agenda$id %in% borradas, ]
 agenda <- agenda[order(as.Date(agenda$fecha, "%d/%m/%Y"),
                        agenda$`hora inicio programada`, agenda$persona), ]
 if (nrow(agenda) == 0) stop("El Sheet no trae ninguna inscripcion con cedula; la agenda no se toca.")
@@ -141,12 +149,13 @@ if (nrow(agenda) == 0) stop("El Sheet no trae ninguna inscripcion con cedula; la
 # 7. Resumen
 # Una fila por cedula: quien se inscribio dos veces con el nombre escrito
 # distinto ("Cossio" / "Cossío") es una sola persona.
-fuera <- insc[!insc$en_marco, c("documento", "Nombre completo")]
+fuera <- insc[!insc$en_marco & !insc$id %in% borradas, c("documento", "Nombre completo")]
 fuera <- fuera[!duplicated(fuera$documento), ]
 cat("\nInscripciones en el Sheet:", nrow(insc), "\n")
 cat("Citaciones en la agenda:  ", nrow(agenda), "de", length(unique(agenda$id)), "personas\n")
 print(table(paste(agenda$fecha, agenda$`hora inicio programada`, "-",
                   agenda$`hora final programada`)))
+if (n_borradas) cat("\nBorradas desde la app (no se citan):", n_borradas, "\n")
 if (nrow(fuera)) {
   cat("\nNo estan en el marco (citados con la cedula como id):", nrow(fuera), "\n")
   print(fuera, row.names = FALSE)

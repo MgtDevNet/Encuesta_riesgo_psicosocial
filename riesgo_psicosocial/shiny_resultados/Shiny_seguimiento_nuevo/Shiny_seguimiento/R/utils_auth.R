@@ -50,7 +50,8 @@ AUTH_PERMISOS <- list(
   asignar_grupos   = c("administrador", "coordinador", "auxiliar", "psicologo"),
   tomar_grupos     = "psicologo",
   registrar_sesion = "psicologo",
-  revisar_sesiones = "administrador"
+  revisar_sesiones = "administrador",
+  borrar_personas  = "administrador"
 )
 
 AUTH_PERMISOS_TXT <- c(
@@ -61,7 +62,8 @@ AUTH_PERMISOS_TXT <- c(
   asignar_grupos   = "asigna grupos a los psicólogos",
   tomar_grupos     = "toma y suelta sus propios grupos",
   registrar_sesion = "registra sus sesiones y observa a cada persona",
-  revisar_sesiones = "lee y corrige los registros de sesión"
+  revisar_sesiones = "lee y corrige los registros de sesión",
+  borrar_personas  = "borra personas del seguimiento y las restaura"
 )
 
 AUTH_MIN_CLAVE         <- 8L

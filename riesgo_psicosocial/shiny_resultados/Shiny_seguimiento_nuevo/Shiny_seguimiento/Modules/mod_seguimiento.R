@@ -157,7 +157,15 @@ mod_seguimiento_ui <- function(id) {
            d.attr('data-plegable') + '|' + (d.prop('open') ? '0' : '1') + '|' + Date.now(),
            {priority: 'event'});
        });",
-      ns("citados_dia"), ns("no_registrados"), ns("plegar"))))
+      ns("citados_dia"), ns("no_registrados"), ns("plegar")))),
+    # Borrar una persona (solo administrador): pide confirmacion en el servidor.
+    tags$script(HTML(sprintf(
+      "$(document).on('click', '#%s [data-borrar], #%s [data-borrar]', function(){
+         Shiny.setInputValue('%s', {id:     String($(this).attr('data-borrar')),
+                                    origen: String($(this).attr('data-origen'))},
+                             {priority: 'event'});
+       });",
+      ns("citados_dia"), ns("no_registrados"), ns("borrar"))))
   )
 }
 
@@ -442,7 +450,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
                          fmt_num(length(unique(p$dependencia))))),
             downloadButton(ns("bajar_dia"), "Descargar Excel",
                            class = "btn-sm btn-outline-secondary")),
-        tabla_citados_dia(p)
+        tabla_citados_dia(p, borrar = auth_puede(r$usuario$rol, "borrar_personas"))
       )
     })
 
@@ -511,7 +519,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
             if (pendientes > 0)
               sprintf("%s de %s por completar.", fmt_num(pendientes), fmt_num(nrow(p)))
             else "Todas tienen los datos completos."),
-        tabla_no_registrados(p)
+        tabla_no_registrados(p, borrar = auth_puede(r$usuario$rol, "borrar_personas"))
       )
     })
 
@@ -562,6 +570,58 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
                        type = "message")
       # Rehace esta lista y el avance, el detalle y los indicadores, que leen
       # marco_completo.
+      r$respuestas <- isolate(r$respuestas) + 1
+    })
+
+    # --- borrar personas -------------------------------------------------------
+    # Solo el administrador (permiso `borrar_personas`), que se vuelve a leer de
+    # la base en cada paso: el boton se dibuja segun el rol de la ficha, pero un
+    # input se puede mandar a mano. Ver seg_borrar_persona().
+    puede_borrar <- function() isTRUE(tryCatch(
+      auth_puede_usuario(r$usuario$usuario, "borrar_personas"),
+      error = function(e) FALSE))
+    borrar_actual <- reactiveVal(NULL)
+
+    observeEvent(input$borrar, {
+      b <- input$borrar
+      req(b$id)
+      if (!puede_borrar()) {
+        showNotification("No tiene permiso para borrar personas.", type = "error")
+        return()
+      }
+      p <- tryCatch(if (identical(b$origen, "no_registrados")) no_registrados()
+                    else citados_del_dia(), error = function(e) NULL)
+      nombre <- if (is.null(p)) NA_character_
+                else p$nombre[match(b$id, p$id_anonimizado)]
+      borrar_actual(list(id = b$id, nombre = nombre, origen = b$origen))
+      showModal(modal_borrar(ns, b$id, nombre))
+    })
+
+    observeEvent(input$borrar_ok, {
+      b <- borrar_actual()
+      req(b)
+      removeModal()
+      borrar_actual(NULL)
+      if (!puede_borrar()) {
+        showNotification("No tiene permiso para borrar personas.", type = "error")
+        return()
+      }
+      res <- tryCatch({
+        seg_borrar_persona(b$id, b$nombre, b$origen, r$usuario$usuario)
+        NULL
+      }, error = function(e) conditionMessage(e))
+      if (!is.null(res)) {
+        showNotification(paste("No se pudo borrar:", res), type = "error")
+        return()
+      }
+      try(auth_bitacora("persona_borrada", r$usuario$usuario,
+                        sprintf("%s, desde %s", b$id, SEG_BORRADA_ORIGEN[b$origen] %||% b$origen),
+                        r$usuario$origen %||% NA_character_), silent = TRUE)
+      showNotification(paste("Persona borrada: ya no cuenta en el seguimiento.",
+                             "Se puede restaurar desde Administración."), type = "message")
+      SEG_BORRADAS(SEG_BORRADAS() + 1)
+      # Rehace el avance, los indicadores y los dos recuadros. Los grupos de
+      # Citaciones se releen solos cada minuto.
       r$respuestas <- isolate(r$respuestas) + 1
     })
 
@@ -1542,7 +1602,7 @@ cto_resultado_txt <- function(x) {
          ifelse(x %in% CTO_REAPERTURA, "Reabierto", "Contactada"))))
 }
 
-tabla_citados_dia <- function(p) {
+tabla_citados_dia <- function(p, borrar = FALSE) {
   filas <- lapply(seq_len(nrow(p)), function(i) {
     f <- p[i, ]
     cerrado <- isTRUE(f$ultimo_resultado %in% CTO_CIERRES)
@@ -1576,7 +1636,8 @@ tabla_citados_dia <- function(p) {
                 tags$button(type = "button", class = "btn btn-sm btn-outline-secondary",
                             `data-contactar` = f$id_anonimizado,
                             `aria-label` = paste("Registrar contacto con", f$id_anonimizado),
-                            if (isTRUE(f$contactos > 0)) "Contactar…" else "Contactar")))
+                            if (isTRUE(f$contactos > 0)) "Contactar…" else "Contactar"),
+              if (borrar) boton_borrar(f$id_anonimizado, "citados_dia")))
   })
 
   div(class = "tabla-dep-caja",
@@ -1591,7 +1652,7 @@ tabla_citados_dia <- function(p) {
 
 # --- personas fuera del marco ---------------------------------------------------
 
-tabla_no_registrados <- function(p) {
+tabla_no_registrados <- function(p, borrar = FALSE) {
   # Son timestamptz: fmt_fecha() pasaria por as.Date() en UTC y un envio de
   # la noche saldria con el dia siguiente.
   dia <- function(x) if (is.na(x)) "—" else format(as.POSIXct(x), "%d/%m/%Y", tz = SEG_TZ)
@@ -1618,7 +1679,8 @@ tabla_no_registrados <- function(p) {
                 tags$button(type = "button", class = "btn btn-sm btn-outline-primary",
                             `data-completar` = f$id_anonimizado,
                             `aria-label` = paste("Completar datos de", f$id_anonimizado),
-                            "Completar datos")))
+                            "Completar datos"),
+              if (borrar) boton_borrar(f$id_anonimizado, "no_registrados")))
   })
 
   div(class = "tabla-dep-caja",
@@ -2696,6 +2758,125 @@ grafico_indicador <- function(per, ind, marco = 0, por = "semana", control = NUL
         tags$td(if (is.na(pct[i]))    "—" else fmt_pct(round(pct[i], 1))),
         tags$td(if (is.na(pct_ac[i])) "—" else fmt_pct(round(pct_ac[i], 1)))))))
   )
+}
+
+
+# --- personas borradas ----------------------------------------------------------
+# Ver seg_borrar_persona(). Se borra desde los dos recuadros del final de Avance
+# y se restaura desde Administracion (mod_borradas_*).
+
+# Cambios de la lista, contados en el proceso y no en la sesion, como
+# CIT_CARGAS: quien tiene Administracion abierta ve lo que borro otra persona.
+SEG_BORRADAS <- reactiveVal(0)
+
+# De que recuadro se borro, para la bitacora y la lista de Administracion.
+SEG_BORRADA_ORIGEN <- c(citados_dia    = "Quién no contestó",
+                        no_registrados = "Sin estar en el marco")
+
+boton_borrar <- function(id, origen) {
+  tags$button(type = "button", class = "btn btn-sm btn-outline-danger ms-1",
+              `data-borrar` = id, `data-origen` = origen,
+              `aria-label` = paste("Borrar a", id), "Borrar")
+}
+
+modal_borrar <- function(ns, id, nombre) {
+  quien <- if (is.na(nombre) || !nzchar(nombre)) id else sprintf("%s (%s)", nombre, id)
+  modalDialog(
+    title = "¿Está seguro de que quiere borrar a esta persona?",
+    easyClose = FALSE,
+    p(tags$b(quien)),
+    tags$ul(class = "small",
+      tags$li("Deja de verse en la aplicación: no cuenta como citada ni como ",
+              "encuestada, y sale de los grupos, de Avance y de Resultados."),
+      tags$li("No vuelve a la agenda aunque siga en el Google Sheet."),
+      tags$li("Sus respuestas de ODK no se borran de la base.")),
+    p(class = "small text-muted mb-0",
+      "Si fue un error, se puede restaurar desde Administración › Personas borradas."),
+    footer = tagList(
+      modalButton("Cancelar"),
+      actionButton(ns("borrar_ok"), "Sí, borrar", class = "btn-danger"))
+  )
+}
+
+mod_borradas_ui <- function(id) {
+  ns <- NS(id)
+  tagList(
+    tags$script(HTML(sprintf(
+      "$(document).on('click', '#%s [data-restaurar]', function(){
+         Shiny.setInputValue('%s', String($(this).attr('data-restaurar')),
+                             {priority: 'event'});
+       });", ns("tabla"), ns("restaurar")))),
+    h5("Personas borradas", class = "mb-1"),
+    p(class = "small text-muted mb-2",
+      "Las que se borraron desde Avance. No cuentan en ninguna parte de la ",
+      "aplicación. Al restaurarlas vuelven a contar de inmediato; a la agenda ",
+      "vuelven con la siguiente actualización desde el Google Sheet."),
+    uiOutput(ns("tabla"))
+  )
+}
+
+mod_borradas_server <- function(id, r = reactiveValues()) {
+  moduleServer(id, function(input, output, session) {
+    puede <- function() isTRUE(tryCatch(
+      auth_puede_usuario(r$usuario$usuario, "borrar_personas"),
+      error = function(e) FALSE))
+
+    lista <- reactive({
+      SEG_BORRADAS()
+      invalidateLater(60 * 1000)
+      req(puede())
+      seg_personas_borradas()
+    })
+
+    output$tabla <- renderUI({
+      p <- lista()
+      if (nrow(p) == 0) return(div(class = "small text-muted", "No hay personas borradas."))
+      cuando <- function(x) format(as.POSIXct(x), "%d/%m/%Y %H:%M", tz = SEG_TZ)
+      filas <- lapply(seq_len(nrow(p)), function(i) {
+        f <- p[i, ]
+        tags$tr(
+          tags$td(class = "col-id",
+                  if (is.na(f$nombre)) f$id_anonimizado
+                  else tagList(span(class = "col-nombre", f$nombre),
+                               span(class = "col-medio", f$id_anonimizado))),
+          tags$td(SEG_BORRADA_ORIGEN[f$origen] %||% f$origen),
+          tags$td(f$borrado_por),
+          tags$td(class = "col-fecha", cuando(f$borrado_en)),
+          tags$td(class = "col-accion",
+                  tags$button(type = "button", class = "btn btn-sm btn-outline-primary",
+                              `data-restaurar` = f$id_anonimizado,
+                              `aria-label` = paste("Restaurar a", f$id_anonimizado),
+                              "Restaurar")))
+      })
+      div(class = "tabla-dep-caja",
+          tags$table(
+            class = "tabla-dep tabla-per tabla-dia",
+            tags$thead(tags$tr(tags$th("Persona"), tags$th("Desde"), tags$th("Borrada por"),
+                               tags$th("Fecha"), tags$th(""))),
+            tags$tbody(filas)))
+    })
+
+    observeEvent(input$restaurar, {
+      id <- input$restaurar
+      if (!puede()) {
+        showNotification("No tiene permiso para restaurar personas.", type = "error")
+        return()
+      }
+      res <- tryCatch({ seg_restaurar_persona(id); NULL },
+                      error = function(e) conditionMessage(e))
+      if (!is.null(res)) {
+        showNotification(paste("No se pudo restaurar:", res), type = "error")
+        return()
+      }
+      try(auth_bitacora("persona_restaurada", r$usuario$usuario, id,
+                        r$usuario$origen %||% NA_character_), silent = TRUE)
+      showNotification(paste("Persona restaurada. Si está en el Google Sheet, vuelve a la",
+                             "agenda en la próxima actualización (máximo 30 minutos)."),
+                       type = "message")
+      SEG_BORRADAS(SEG_BORRADAS() + 1)
+      r$respuestas <- isolate(r$respuestas) + 1
+    })
+  })
 }
 
 

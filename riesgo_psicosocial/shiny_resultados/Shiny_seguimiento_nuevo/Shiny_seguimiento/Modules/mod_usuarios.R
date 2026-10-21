@@ -52,6 +52,8 @@ mod_usuarios_ui <- function(id) {
     hr(class = "my-4"),
     mod_informe_ui(ns("informe")),
     hr(class = "my-4"),
+    mod_borradas_ui(ns("borradas")),
+    hr(class = "my-4"),
 
     h5("Bitácora", class = "mb-1"),
     p(class = "small text-muted mb-2",
@@ -72,6 +74,10 @@ mod_usuarios_server <- function(id, r = reactiveValues()) {
     # Informe de avance en Word, que antes estaba en la pestaña de Avance.
     # También revisa su propio permiso (`informe_avance`) en cada descarga.
     mod_informe_server("informe", r = r)
+
+    # Personas borradas desde Avance, para restaurarlas. Revisa su propio
+    # permiso (`borrar_personas`) en cada acción.
+    mod_borradas_server("borradas", r = r)
 
     recarga     <- reactiveVal(0)
     pendiente   <- reactiveVal(NULL) # acción que espera confirmación

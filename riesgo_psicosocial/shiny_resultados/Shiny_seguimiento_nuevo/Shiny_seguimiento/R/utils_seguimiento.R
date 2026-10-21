@@ -289,6 +289,17 @@ seg_incluir_no_registrados <- function() {
 }
 
 seg_crear_marco_completo <- function() {
+  # Personas borradas desde la app (ver seg_borrar_persona()). Va aqui porque
+  # la vista de abajo la usa: quien esta en esta tabla no existe para la app.
+  db_exec("
+    CREATE TABLE IF NOT EXISTS seguimiento.personas_borradas (
+      id_anonimizado text PRIMARY KEY,
+      nombre         text,
+      origen         text,
+      borrado_por    text,
+      borrado_en     timestamptz NOT NULL DEFAULT now()
+    )")
+
   db_exec("
     CREATE TABLE IF NOT EXISTS seguimiento.empleados_no_registrados (
       id_anonimizado   text NOT NULL,
@@ -354,27 +365,37 @@ seg_crear_marco_completo <- function() {
     db_exec("DROP VIEW IF EXISTS seguimiento.marco_completo")
   }
 
+  # Las personas borradas desde la app quedan fuera de las dos partes: sin ellas
+  # en la vista no cuentan en Avance, en los indicadores ni en Resultados, y
+  # sus respuestas de ODK siguen intactas en la base.
+  sin_borradas <- function(alias) sprintf(
+    "NOT EXISTS (SELECT 1 FROM seguimiento.personas_borradas b
+                  WHERE b.id_anonimizado = %s.id_anonimizado)", alias)
+
   if (!seg_incluir_no_registrados()) {
-    db_exec("CREATE OR REPLACE VIEW seguimiento.marco_completo AS
-             SELECT * FROM seguimiento.marco")
+    db_exec(sprintf("CREATE OR REPLACE VIEW seguimiento.marco_completo AS
+             SELECT m.* FROM seguimiento.marco m WHERE %s", sin_borradas("m")))
     return(invisible(TRUE))
   }
 
   db_exec(sprintf("
     CREATE OR REPLACE VIEW seguimiento.marco_completo AS
-    SELECT * FROM seguimiento.marco
+    SELECT m.* FROM seguimiento.marco m
+     WHERE %s
     UNION ALL
     SELECT %s
       FROM seguimiento.empleados_no_registrados n
      WHERE n.completado_en IS NOT NULL
        AND n.etapa = '%s'
        AND NOT EXISTS (SELECT 1 FROM seguimiento.marco m
-                        WHERE m.id_anonimizado = n.id_anonimizado)",
+                        WHERE m.id_anonimizado = n.id_anonimizado)
+       AND %s",
+    sin_borradas("m"),
     paste(sprintf("%s AS %s", expr, cols), collapse = ",\n           "),
     # Literal y no parametro: una vista no admite parametros. seg_etapa() solo
     # devuelve uno de SEG_ETAPAS, asi que no hay nada que escapar. Como la vista
     # se rehace en cada arranque, cambiar ETAPA la actualiza sola.
-    seg_etapa()))
+    seg_etapa(), sin_borradas("n")))
   invisible(TRUE)
 }
 
@@ -413,6 +434,8 @@ seg_no_registrados <- function() {
      WHERE n.etapa = $1
        AND NOT EXISTS (SELECT 1 FROM seguimiento.marco m
                         WHERE m.id_anonimizado = n.id_anonimizado)
+       AND NOT EXISTS (SELECT 1 FROM seguimiento.personas_borradas b
+                        WHERE b.id_anonimizado = n.id_anonimizado)
      ORDER BY n.completado_en IS NOT NULL, n.primer_envio, n.id_anonimizado",
     params = list(seg_etapa()))
 }
@@ -1898,6 +1921,12 @@ seg_cit_guardar <- function(cit) {
   db_tx(function(con) {
     DBI::dbExecute(con, "TRUNCATE seguimiento.citaciones")
     DBI::dbAppendTable(con, DBI::Id(schema = "seguimiento", table = "citaciones"), cit)
+    # Quien se borro desde la app no vuelve aunque siga en el archivo o en el
+    # Google Sheet (ver seg_borrar_persona()).
+    DBI::dbExecute(con, "
+      DELETE FROM seguimiento.citaciones c
+       USING seguimiento.personas_borradas b
+       WHERE b.id_anonimizado = c.id_anonimizado")
     DBI::dbExecute(con, "
       DELETE FROM seguimiento.grupos_aplicador g
        WHERE NOT EXISTS (SELECT 1 FROM seguimiento.citaciones c
@@ -1905,6 +1934,47 @@ seg_cit_guardar <- function(cit) {
                             AND c.hora_fin = g.hora_fin AND COALESCE(c.link, '') = g.link)")
   })
   invisible(nrow(cit))
+}
+
+# --- personas borradas -----------------------------------------------------------
+# El administrador (permiso `borrar_personas`) borra a una persona desde los
+# recuadros de Avance --quien no contesto, quien respondio sin estar en el
+# marco--. Borrar NO elimina datos: la persona entra a
+# seguimiento.personas_borradas, y con eso
+#   - sale de marco_completo, asi que deja de contar en Avance, en los
+#     indicadores y en Resultados (sus respuestas de ODK siguen en la base);
+#   - sale de la agenda ya cargada y de las que se carguen despues, aunque siga
+#     en el Google Sheet (seg_cit_guardar()), y con eso de los citados y de los
+#     grupos;
+#   - sale de la lista de no registrados.
+# Se restaura desde Administracion. Lo que vuelve a la agenda vuelve con la
+# siguiente carga: el cron del Google Sheet, cada 30 minutos.
+
+seg_borrar_persona <- function(id, nombre = NA_character_, origen = NA_character_,
+                               usuario = NA_character_) {
+  db_tx(function(con) {
+    DBI::dbExecute(con, "
+      INSERT INTO seguimiento.personas_borradas
+             (id_anonimizado, nombre, origen, borrado_por)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (id_anonimizado) DO NOTHING",
+      params = list(id, nombre, origen, usuario))
+    DBI::dbExecute(con, "DELETE FROM seguimiento.citaciones WHERE id_anonimizado = $1",
+                   params = list(id))
+  })
+  invisible(TRUE)
+}
+
+seg_restaurar_persona <- function(id) {
+  invisible(db_exec("DELETE FROM seguimiento.personas_borradas WHERE id_anonimizado = $1",
+                    params = list(id)))
+}
+
+seg_personas_borradas <- function() {
+  db_get("
+    SELECT id_anonimizado, nombre, origen, borrado_por, borrado_en
+      FROM seguimiento.personas_borradas
+     ORDER BY borrado_en DESC")
 }
 
 # Lo que hay cargado hoy, para mostrarlo antes de reemplazarlo.
@@ -2139,6 +2209,9 @@ seg_obs_leer <- function(g) {
              ON o.tipo = 'persona' AND o.fecha = $1::date AND o.hora_inicio = $2::time
             AND o.hora_fin = $3::time AND o.link = $4
             AND o.id_anonimizado = ids.id_anonimizado
+     -- quien se borro desde la app ya no se lista (ver seg_borrar_persona())
+     WHERE NOT EXISTS (SELECT 1 FROM seguimiento.personas_borradas b
+                        WHERE b.id_anonimizado = ids.id_anonimizado)
      ORDER BY 2 NULLS LAST, 1", params = p)
   list(sesion = sesion, personas = personas)
 }
