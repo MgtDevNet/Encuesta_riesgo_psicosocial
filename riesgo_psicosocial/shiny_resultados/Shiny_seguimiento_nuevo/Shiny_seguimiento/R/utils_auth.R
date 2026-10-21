@@ -6,8 +6,7 @@
 #
 # Cuatro roles (AUTH_ROLES). Avance y Citaciones los ven todos; lo que los
 # distingue esta en AUTH_PERMISOS, que es el unico sitio donde se decide:
-#   ver_resultados  ver la pestana Resultados              todos menos el
-#                                                          auxiliar
+#   ver_resultados  ver la pestana Resultados              los cuatro
 #   usuarios        administrar cuentas y ver la bitacora  administrador
 #   cargar_agenda   subir el Excel de la agenda            administrador
 #   informe_avance  bajar el informe de avance en Word     administrador
@@ -18,6 +17,8 @@
 #                     cada persona, solo en sus grupos
 #   revisar_sesiones  leer y corregir cualquier registro  administrador
 #                     de sesion, a cualquier hora
+#   borrar_personas   borrar personas desde Avance y      administrador
+#                     restaurarlas en Administracion
 # El psicologo es quien aplica la encuesta, y un grupo solo se le asigna a un
 # psicologo. La interfaz se dibuja segun el rol de la ficha de sesion, pero cada
 # accion vuelve a leer el rol de la base (auth_puede_usuario()).
@@ -43,7 +44,7 @@ AUTH_ROLES <- c(
 )
 
 AUTH_PERMISOS <- list(
-  ver_resultados = c("administrador", "coordinador", "psicologo"),
+  ver_resultados = c("administrador", "coordinador", "auxiliar", "psicologo"),
   usuarios       = "administrador",
   cargar_agenda  = "administrador",
   informe_avance = "administrador",

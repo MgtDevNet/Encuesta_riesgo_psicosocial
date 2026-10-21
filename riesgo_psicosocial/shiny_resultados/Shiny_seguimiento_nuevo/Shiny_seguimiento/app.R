@@ -240,7 +240,7 @@ server <- function(input, output, session) {
       mod_seguimiento_server("seg", r = r)
 
       # 2) Resultados por grupos de personas, solo con el permiso
-      #    `ver_resultados` (todos menos el auxiliar)
+      #    `ver_resultados` (hoy, los cuatro roles)
       if (auth_puede(r$usuario$rol, "ver_resultados")) mod_resultados_server("res", r = r)
 
       # 3) Grupos de aplicación
@@ -280,7 +280,7 @@ pantalla_principal <- function(sesion) {
     ),
 
     # 2) Resultados por grupos de personas, solo con el permiso
-    #    `ver_resultados` (todos menos el auxiliar)
+    #    `ver_resultados` (hoy, los cuatro roles)
     if (auth_puede(sesion$rol, "ver_resultados")) tabPanel(
       icon  = icon("users"),
       title = "Resultados",
