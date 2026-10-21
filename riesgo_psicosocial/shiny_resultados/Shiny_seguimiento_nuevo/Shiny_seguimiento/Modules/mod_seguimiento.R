@@ -223,8 +223,8 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     # Las dos formas van pegadas a "Encuestados" porque lo descomponen: A + B es
     # exactamente ese numero, y lo mismo pasa con sus efectivas. Con las citadas
     # no: sin filtro, el total suma tambien a los citados fuera del marco, que
-    # no tienen forma.
-    # Dentro de cada una van los tres indicadores de ESA forma, que es de donde
+    # no tienen forma, y por eso la Cobertura Citados va solo en el total.
+    # Dentro de cada una van los otros dos indicadores de ESA forma, que es de donde
     # sale la pregunta util: si A va al 63% de efectividad y B al 58%, el campo
     # esta rindiendo distinto en las dos y hay que mirar por que.
     #
@@ -1051,12 +1051,14 @@ caja_indicador <- function(nombre, pct, num, unidad, den = NULL, den_unidad = NU
 
 # Cajon de una forma del cuestionario: el numero grande sigue siendo cuanta
 # gente de esa forma se ha encuestado --en verde, como el cajon de
-# "Encuestados", del que A y B son el desglose-- y debajo van los tres
-# indicadores de ESA forma, cada uno con su porcentaje y su numero.
+# "Encuestados", del que A y B son el desglose-- y debajo van Efectividad y
+# Cobertura Esperados de ESA forma, cada uno con su porcentaje y su numero.
+# La Cobertura Citados no va: los citados fuera del marco no tienen forma, asi
+# que A y B no suman los citados del total (ver SEG_CIT_SIN_MARCO).
 #
 # El porcentaje va antes que el numero y los dos en columnas alineadas, para que
-# las tres filas del cajon de A se comparen con las tres del de B leyendo en
-# vertical, sin tener que buscar donde empieza cada cifra.
+# las filas del cajon de A se comparen con las del de B leyendo en vertical,
+# sin tener que buscar donde empieza cada cifra.
 caja_forma <- function(letra, encuestados, ind) {
   linea <- function(nombre, pct, num) div(
     class = "kpi-linea",
@@ -1070,7 +1072,6 @@ caja_forma <- function(letra, encuestados, ind) {
     div(class = "kpi-etiqueta", paste("Forma", letra)),
     div(class = "kpi-indicadores",
         linea("Efectividad",    ind$efectividad,   ind$efectivas),
-        linea("Cob. Citados",   ind$cob_citados,   ind$encuestados),
         linea("Cob. Esperados", ind$cob_esperados, ind$encuestados))
   )
 }
