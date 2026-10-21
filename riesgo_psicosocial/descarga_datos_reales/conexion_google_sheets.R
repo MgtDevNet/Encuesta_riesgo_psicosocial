@@ -8,8 +8,31 @@ gs4_deauth()
 # La llave NO va a git (ver .gitignore): se pasa por fuera, como el .Renviron.
 # Su ruta va en el .Renviron de esta carpeta, en la linea
 #   GOOGLE_SA_KEY=<ruta completa al archivo .json>
-readRenviron("/home/decm/Encuesta_riesgo_psicosocial/riesgo_psicosocial/descarga_datos_reales/.Renviron")
+#
+# Nada de rutas fijas: el .Renviron se busca en la carpeta de este script, sea
+# con Rscript, con source() o abierto en RStudio. Si no se puede saber (lineas
+# sueltas en la consola), se usa la carpeta de trabajo.
+args_file  <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE))
+dir_script <- if (length(args_file) == 1) {
+  dirname(normalizePath(args_file))
+} else if (!is.null(sys.frame(1)$ofile)) {
+  dirname(normalizePath(sys.frame(1)$ofile))
+} else if (requireNamespace("rstudioapi", quietly = TRUE) &&
+           rstudioapi::isAvailable() &&
+           nzchar(rstudioapi::getSourceEditorContext()$path)) {
+  dirname(normalizePath(rstudioapi::getSourceEditorContext()$path))
+} else {
+  getwd()
+}
+readRenviron(file.path(dir_script, ".Renviron"))
+
+# Si la ruta del .Renviron no existe en este equipo (p. ej. una ruta de Windows
+# vista desde Linux, o la de otro equipo), se busca la llave junto al script,
+# con el mismo nombre. Igual que en agenda_desde_google_sheets.R.
 llave_google <- Sys.getenv("GOOGLE_SA_KEY")
+if (nzchar(llave_google) && !file.exists(llave_google)) {
+  llave_google <- file.path(dir_script, basename(gsub("\\\\", "/", llave_google)))
+}
 if (!nzchar(llave_google) || !file.exists(llave_google)) {
   stop("Falta GOOGLE_SA_KEY en el .Renviron, o el archivo no existe: '", llave_google, "'")
 }
@@ -25,7 +48,8 @@ datos_formulario <- read_sheet(sheet_id, sheet = "Respuestas de formulario 1")
 # Visualizar los datos
 head(datos_formulario)
 
-View(datos_formulario)
+# View() solo existe en una sesion interactiva (RStudio); con Rscript fallaria.
+if (interactive()) View(datos_formulario)
 
 # 
 # Campus 
