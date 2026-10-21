@@ -142,7 +142,15 @@ if (nrow(fuera)) {
 }
 
 # 8a. Manual: el Excel para subir en la app
+#     Dentro del contenedor no hay writexl y /descarga es de solo lectura: ahi
+#     sirve de prueba en seco (el resumen de arriba) y termina sin error.
 if (!cargar) {
+  db_cerrar()
+  if (!requireNamespace("writexl", quietly = TRUE) || file.access(dir_script, 2) != 0) {
+    cat("\nPrueba en seco: aqui no se puede guardar el Excel (falta el paquete",
+        "writexl o la carpeta es de solo lectura). La base no se toco.\n")
+    quit(status = 0)
+  }
   writexl::write_xlsx(agenda, salida)
   cat("\nArchivo:", salida, "\n")
   cat("Subalo en la Shiny: Administracion > Agenda de citaciones.\n")
