@@ -1030,16 +1030,16 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
 # Cajon de un indicador en total: porcentaje grande, nombre, y el numerador
 # debajo con lo que cuenta. `unidad` nombra a las personas del numerador
 # --"efectivas", "encuestadas"-- porque no son las mismas en los tres.
-# Con `den`, el pie dice tambien sobre que se divide ("36 encuestadas de 40
-# citadas"), para que el porcentaje se pueda rehacer a mano.
+# Con `den`, el pie dice tambien sobre que se divide ("36 encuestadas" y debajo
+# "40 citadas"), para que el porcentaje se pueda rehacer a mano. Va en una
+# linea aparte: .kpi-pie no parte el texto y en una sola se salia del cajon.
 caja_indicador <- function(nombre, pct, num, unidad, den = NULL, den_unidad = NULL) {
-  pie <- sprintf("%s %s", fmt_num(num), unidad)
-  if (!is.null(den)) pie <- sprintf("%s de %s %s", pie, fmt_num(den), den_unidad)
   div(
     class = "kpi-caja",
     div(class = "kpi-valor", fmt_pct(pct)),
     div(class = "kpi-etiqueta", nombre),
-    div(class = "kpi-pie", pie)
+    div(class = "kpi-pie", sprintf("%s %s", fmt_num(num), unidad)),
+    if (!is.null(den)) div(class = "kpi-pie", sprintf("%s %s", fmt_num(den), den_unidad))
   )
 }
 
