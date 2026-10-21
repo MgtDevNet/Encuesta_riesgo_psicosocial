@@ -256,7 +256,8 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
           caja_indicador("No efectivas",        ti$total$pct_no_efectivas,
                          ti$total$no_efectivas, "no aceptaron"),
           caja_indicador("Cobertura Citados",   ti$total$cob_citados,
-                         ti$total$encuestados, "encuestadas"),
+                         ti$total$encuestados, "encuestadas",
+                         ti$total$citados, "citadas"),
           caja_indicador("Cobertura Esperados", ti$total$cob_esperados,
                          ti$total$encuestados, "encuestadas"),
           caja(t$dependencias, "Dependencias"),
@@ -651,7 +652,8 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
                 caja_indicador("No efectivas",        d$indicadores$total$pct_no_efectivas,
                                d$indicadores$total$no_efectivas, "no aceptaron"),
                 caja_indicador("Cobertura Citados",   d$indicadores$total$cob_citados,
-                               d$indicadores$total$encuestados, "encuestadas"),
+                               d$indicadores$total$encuestados, "encuestadas",
+                               d$indicadores$total$citados, "citadas"),
                 caja_indicador("Cobertura Esperados", d$indicadores$total$cob_esperados,
                                d$indicadores$total$encuestados, "encuestadas")),
 
@@ -1028,12 +1030,16 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
 # Cajon de un indicador en total: porcentaje grande, nombre, y el numerador
 # debajo con lo que cuenta. `unidad` nombra a las personas del numerador
 # --"efectivas", "encuestadas"-- porque no son las mismas en los tres.
-caja_indicador <- function(nombre, pct, num, unidad) {
+# Con `den`, el pie dice tambien sobre que se divide ("36 encuestadas de 40
+# citadas"), para que el porcentaje se pueda rehacer a mano.
+caja_indicador <- function(nombre, pct, num, unidad, den = NULL, den_unidad = NULL) {
+  pie <- sprintf("%s %s", fmt_num(num), unidad)
+  if (!is.null(den)) pie <- sprintf("%s de %s %s", pie, fmt_num(den), den_unidad)
   div(
     class = "kpi-caja",
     div(class = "kpi-valor", fmt_pct(pct)),
     div(class = "kpi-etiqueta", nombre),
-    div(class = "kpi-pie", sprintf("%s %s", fmt_num(num), unidad))
+    div(class = "kpi-pie", pie)
   )
 }
 
