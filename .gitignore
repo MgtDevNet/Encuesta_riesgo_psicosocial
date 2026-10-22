@@ -48,6 +48,9 @@ Simulacion_respuestas_ODK.csv
 *.docm
 *.dotx
 ~$*.docx
+# Excepcion: la plantilla vacia del informe individual, que la app necesita
+# dentro de la imagen de Docker. No lleva datos de nadie.
+!**/Shiny_seguimiento/plantillas/informe_individual.docx
 
 # --- Instrucciones locales para el servidor ---
 PASOS_SERVIDOR.txt

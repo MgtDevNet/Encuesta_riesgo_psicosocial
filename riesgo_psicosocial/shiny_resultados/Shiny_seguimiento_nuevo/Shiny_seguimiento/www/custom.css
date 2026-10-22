@@ -2407,3 +2407,4 @@
 /* La vista tiene decenas de columnas: la tabla se desplaza sola, no la página. */
 .des-previa { overflow-x: auto; max-width: 100%; }
 .des-previa table { font-size: 0.78rem; white-space: nowrap; }
+.des-informe { margin-bottom: 1.4rem; max-width: 40rem; }

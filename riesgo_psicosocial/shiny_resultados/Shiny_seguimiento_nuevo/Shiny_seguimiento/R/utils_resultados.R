@@ -1224,7 +1224,14 @@ res_desc_cruce_pct <- function(n, modo = "fila") {
 #
 # conectar_bd.R la borra antes de reescribir la tabla y la vuelve a crear con
 # esta misma funcion, como a seguimiento.estado_persona.
-RES_VISTA_EXPORTACION <- "public.respuestas_procesadas_exportacion"
+#
+# public.respuestas_procesadas_exportacion_ind es la misma vista con el puntaje
+# transformado (0 a 100) al lado de cada nivel, y con nombre, dependencia y
+# fecha de aplicacion, que es lo que pide el informe individual. Sale de la
+# misma funcion para que las dos no se desalineen. Necesita las columnas pt_*
+# que escribe conectar_bd.R; en una tabla escrita antes de ellas no se crea.
+RES_VISTA_EXPORTACION     <- "public.respuestas_procesadas_exportacion"
+RES_VISTA_EXPORTACION_IND <- "public.respuestas_procesadas_exportacion_ind"
 
 res_crear_vista_exportacion <- function() {
   hay <- function(esquema, tabla) isTRUE(nrow(db_get(
@@ -1236,9 +1243,34 @@ res_crear_vista_exportacion <- function() {
     return(invisible(FALSE))
   }
 
+  vistas <- list(list(nombre = RES_VISTA_EXPORTACION, puntajes = FALSE))
+  if (res_hay_columna("pt_total_estres") && hay("seguimiento", "marco") &&
+      hay("seguimiento", "empleados_no_registrados"))
+    vistas[[2]] <- list(nombre = RES_VISTA_EXPORTACION_IND, puntajes = TRUE)
+
+  # CREATE OR REPLACE VIEW no deja quitar ni renombrar columnas: se rehacen.
+  # La _ind se borra aunque no se vaya a crear, para no dejar una vieja.
+  db_exec(sprintf("DROP VIEW IF EXISTS %s", RES_VISTA_EXPORTACION))
+  db_exec(sprintf("DROP VIEW IF EXISTS %s", RES_VISTA_EXPORTACION_IND))
+
+  for (v in vistas) res_crear_vista_export_una(v$nombre, v$puntajes)
+  invisible(TRUE)
+}
+
+# Una de las dos vistas. Con `puntajes` es la del informe individual: lleva
+# nombre, dependencia y fecha de aplicacion, y cada nivel su puntaje al lado:
+# "Dim. Claridad de rol" y luego "Puntaje Claridad de rol". El puntaje va sin el
+# prefijo Dim./Dom./Extra. porque con el no cabe en los 63 bytes de Postgres
+# ("Puntaje Extra. Influencia del entorno extralaboral sobre el trabajo"); los
+# rotulos no se repiten entre niveles, asi que no hay confusion.
+res_crear_vista_export_una <- function(nombre, puntajes) {
+  # Un nombre de columna suelto es de respuestas_procesadas, y va con su alias:
+  # la vista del informe une con el marco, que tambien tiene sexo, nombre y
+  # forma_cuestionario.
   col <- function(expr, rotulo) {
     if (nchar(rotulo, type = "bytes") > 63)
       stop("Rotulo de mas de 63 bytes, Postgres lo cortaria: ", rotulo)
+    if (grepl("^[a-z0-9_]+$", expr)) expr <- paste0("r.", expr)
     sprintf("%s AS %s", expr, DBI::dbQuoteIdentifier(DBI::ANSI(), rotulo))
   }
   # Una forma tiene su columna y la otra la suya; nunca las dos llenas. La
@@ -1246,19 +1278,33 @@ res_crear_vista_exportacion <- function() {
   # final en los totales (clas_total_intra_a): el patron lleva un %s.
   fundida <- function(patron, dim = "") {
     if (dim %in% RES_SOLO_A) return(sprintf(patron, "a"))
-    sprintf("COALESCE(%s, %s)", sprintf(patron, "a"), sprintf(patron, "b"))
+    sprintf("COALESCE(r.%s, r.%s)", sprintf(patron, "a"), sprintf(patron, "b"))
+  }
+  # El nivel y, si se piden, el puntaje: la misma expresion con pt_ en vez de
+  # clas_ (conectar_bd.R les da el mismo nombre corto).
+  par <- function(expr_clas, rotulo, rotulo_pt) {
+    c(col(expr_clas, rotulo),
+      if (puntajes) col(gsub("clas_", "pt_", expr_clas, fixed = TRUE),
+                        paste("Puntaje", rotulo_pt)))
   }
 
   intra <- unlist(lapply(names(RES_DOM_DIMS), function(dm) c(
-    col(fundida(paste0("clas_dom_%s_", dm)), paste("Dom.", RES_DOMS[[dm]])),
-    vapply(RES_DOM_DIMS[[dm]], function(d)
-      col(fundida(paste0("clas_dim_%s_", d), d), paste("Dim.", RES_DIMS[[d]])), ""))))
+    par(fundida(paste0("clas_dom_%s_", dm)), paste("Dom.", RES_DOMS[[dm]]),
+        RES_DOMS[[dm]]),
+    unlist(lapply(RES_DOM_DIMS[[dm]], function(d)
+      par(fundida(paste0("clas_dim_%s_", d), d), paste("Dim.", RES_DIMS[[d]]),
+          RES_DIMS[[d]]))))))
 
-  extra <- vapply(names(RES_EXTRA), function(d)
-    col(paste0("clas_dim_ex_", d), paste("Extra.", RES_EXTRA[[d]])), "")
+  extra <- unlist(lapply(names(RES_EXTRA), function(d)
+    par(paste0("clas_dim_ex_", d), paste("Extra.", RES_EXTRA[[d]]), RES_EXTRA[[d]])))
 
   columnas <- c(
     col("id_anonimizado",     "Cédula"),
+    if (puntajes) c(
+      col("COALESCE(m.nombre, n.nombre)",           "Nombre"),
+      col("COALESCE(m.dependencia, n.dependencia)", "Dependencia"),
+      col("(r.submission_date AT TIME ZONE 'America/Bogota')::date",
+          "Fecha de aplicación")),
     col("forma_cuestionario", "Forma"),
     col("sexo",               "Sexo"),
     col("nacimiento",         "Fecha de nacimiento"),
@@ -1280,21 +1326,32 @@ res_crear_vista_exportacion <- function() {
     col("horas_diarias",      "Horas diarias de trabajo"),
     col("tipo_salario",       "Tipo de salario"),
     intra,
-    col(fundida("clas_total_intra_%s"),      "Total intralaboral"),
+    par(fundida("clas_total_intra_%s"),      "Total intralaboral",
+        "total intralaboral"),
     extra,
-    col("clas_total_extra",               "Total extralaboral"),
-    col(fundida("clas_total_intraextra_%s"), "Total intralaboral + extralaboral"),
-    col("clas_total_estres",              "Estrés"))
+    par("clas_total_extra",               "Total extralaboral",
+        "total extralaboral"),
+    par(fundida("clas_total_intraextra_%s"), "Total intralaboral + extralaboral",
+        "total intralaboral + extralaboral"),
+    par("clas_total_estres",              "Estrés", "estrés"))
 
-  # CREATE OR REPLACE VIEW no deja quitar ni renombrar columnas: se rehace.
-  db_exec(sprintf("DROP VIEW IF EXISTS %s", RES_VISTA_EXPORTACION))
+  # Nombre y dependencia salen del marco y, para quien no esta en el, de
+  # empleados_no_registrados (la fila de la etapa mas reciente). De las tablas y
+  # no de seguimiento.marco_completo: esa vista se borra y se rehace cuando
+  # cambian las columnas del marco, y no podria si esta dependiera de ella.
+  personas <- if (puntajes) "
+      LEFT JOIN seguimiento.marco m ON m.id_anonimizado = r.id_anonimizado
+      LEFT JOIN (SELECT DISTINCT ON (id_anonimizado) id_anonimizado, nombre, dependencia
+                   FROM seguimiento.empleados_no_registrados
+                  ORDER BY id_anonimizado, detectado_en DESC) n
+             ON n.id_anonimizado = r.id_anonimizado" else ""
+
   db_exec(sprintf("
     CREATE VIEW %s AS
     SELECT %s
-      FROM public.respuestas_procesadas r
+      FROM public.respuestas_procesadas r%s
      WHERE NOT EXISTS (SELECT 1 FROM seguimiento.personas_borradas b
                         WHERE b.id_anonimizado = r.id_anonimizado)
      ORDER BY r.forma_cuestionario, r.id_anonimizado",
-    RES_VISTA_EXPORTACION, paste(columnas, collapse = ",\n           ")))
-  invisible(TRUE)
+    nombre, paste(columnas, collapse = ",\n           "), personas))
 }

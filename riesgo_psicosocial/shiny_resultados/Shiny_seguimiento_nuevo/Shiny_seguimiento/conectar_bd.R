@@ -8,7 +8,8 @@
 # conexion, copiar bd_conectar() de aqui abajo; no sourcear el archivo entero.
 #
 # Despues de la conexion, el script arma paso a paso `respuestas_bd` --las ocho
-# columnas de identificacion mas las 56 de clasificacion que consulta la Shiny--
+# columnas de identificacion mas las 56 de clasificacion que consulta la Shiny
+# y sus 56 puntajes transformados--
 # calculandolo todo desde la base original seguimiento.respuestas_odk, y con eso
 # REESCRIBE seguimiento.respuestas (bloque 9). marco y metas no se tocan.
 #
@@ -1289,6 +1290,54 @@ if (length(raros))
        paste(sprintf("'%s'", raros), collapse = ", "))
 
 
+# --- puntajes transformados ---------------------------------------------------
+# El puntaje de 0 a 100 de cada medida, el mismo con el que el bloque 7 decidio
+# el nivel (ya x 100 y a un decimal, ver aprox_decimal). Lo pide el informe
+# individual, que trae puntaje y nivel lado a lado. Una columna pt_* por cada
+# clas_*, con el mismo nombre corto: pt_dim_a_claridad_rol va con
+# clas_dim_a_claridad_rol.
+#
+# Extralaboral y estres tienen un solo puntaje para las dos formas --el
+# cuestionario es el mismo; lo que cambia con la forma es el baremo--, asi que
+# aqui no hace falta juntar dos origenes como con las clasificaciones.
+origen_pt <- list()
+
+for (f in c("A", "B")) {
+  fl      <- tolower(f)
+  dims_f  <- if (f == "A") names(CLAVE_DIM) else setdiff(names(CLAVE_DIM), SOLO_A)
+
+  for (d in dims_f)
+    origen_pt[[sprintf("pt_dim_%s_%s", fl, CLAVE_DIM[[d]])]] <-
+      sprintf("puntaje_norm_dim_%s_Form%s", d, f)
+
+  for (d in names(CLAVE_DOM))
+    origen_pt[[sprintf("pt_dom_%s_%s", fl, CLAVE_DOM[[d]])]] <-
+      sprintf("puntaje_norm_dom_%s_Form%s", d, f)
+
+  origen_pt[[sprintf("pt_total_intra_%s", fl)]] <-
+    sprintf("puntaje_norm_total_Form%s", f)
+  origen_pt[[sprintf("pt_total_intraextra_%s", fl)]] <-
+    sprintf("puntaje_norm_total_intra_extra_Form%s", f)
+}
+
+for (d in names(CLAVE_EX))
+  origen_pt[[sprintf("pt_dim_ex_%s", CLAVE_EX[[d]])]] <-
+    sprintf("puntaje_norm_dim_%s_extra", d)
+
+origen_pt[["pt_total_extra"]]  <- "puntaje_norm_total_extra"
+origen_pt[["pt_total_estres"]] <- "puntaje_norm_total_estres"
+
+cols_pt <- names(origen_pt)
+stopifnot(setequal(sub("^pt_", "", cols_pt), sub("^clas_", "", cols_bd)))
+
+faltantes <- setdiff(unlist(origen_pt, use.names = FALSE), names(data))
+if (length(faltantes))
+  stop("faltan en `data` estas columnas de puntaje:\n  ",
+       paste(faltantes, collapse = "\n  "))
+
+puntajes <- lapply(origen_pt, function(col) as.numeric(data[[col]]))
+
+
 
 # --- caracterizacion que trae el formulario -----------------------------------
 # La ficha de datos generales y la de datos ocupacionales de la Bateria. Hasta
@@ -1504,7 +1553,8 @@ respuestas_bd <- cbind(
   socio,
   stats::setNames(as.data.frame(clasificaciones, stringsAsFactors = FALSE,
                                 check.names = FALSE),
-                  cols_bd))
+                  cols_bd),
+  stats::setNames(as.data.frame(puntajes, check.names = FALSE), cols_pt))
 
 
 # =============================================================================
@@ -1542,6 +1592,7 @@ bd_exec("DROP VIEW IF EXISTS seguimiento.estado_persona")
 # Lo mismo con la vista de exportacion para los psicologos
 # (res_crear_vista_exportacion() en R/utils_resultados.R).
 bd_exec("DROP VIEW IF EXISTS public.respuestas_procesadas_exportacion")
+bd_exec("DROP VIEW IF EXISTS public.respuestas_procesadas_exportacion_ind")
 
 bd_exec("DROP TABLE IF EXISTS public.respuestas_procesadas")
 
@@ -1568,10 +1619,14 @@ bd_exec(sprintf("
     encuestados        boolean,
     resultado_final_persona smallint,
     %s,
+    %s,
     %s
   )",
   paste(paste(cols_socio, TIPO_SOCIO[cols_socio]), collapse = ",\n    "),
-  paste(paste(cols_bd, "nivel_riesgo"),            collapse = ",\n    ")))
+  paste(paste(cols_bd, "nivel_riesgo"),            collapse = ",\n    "),
+  # Un decimal, como los da el manual y como se clasificaron: numeric(4,1)
+  # redondea al guardar y no deja el 54.600000000000001 de abajo.
+  paste(paste(cols_pt, "numeric(4,1)"),            collapse = ",\n    ")))
 
 DBI::dbAppendTable(con, DBI::Id(schema = "public", table = "respuestas_procesadas"),
                    respuestas_bd)
@@ -1612,7 +1667,7 @@ bd_exec("COMMIT")
        conditionMessage(e), call. = FALSE)
 }))
 
-cat(sprintf("public.respuestas_procesadas reescrita: %s filas, %s completas, %s sin consentimiento, %s columnas de caracterizacion, %s de clasificacion\n",
+cat(sprintf("public.respuestas_procesadas reescrita: %s filas, %s completas, %s sin consentimiento, %s columnas de caracterizacion, %s de clasificacion, %s de puntaje\n",
             nrow(respuestas), sum(respuestas$completa),
             sum(!respuestas$acepta, na.rm = TRUE),
-            length(cols_socio), length(cols_bd)))
+            length(cols_socio), length(cols_bd), length(cols_pt)))

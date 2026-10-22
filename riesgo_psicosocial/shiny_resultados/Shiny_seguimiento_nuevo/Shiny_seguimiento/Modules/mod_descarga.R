@@ -10,6 +10,9 @@
 # archivo lleva la cédula. Cada descarga vuelve a mirar el rol en la base y
 # queda en la bitácora.
 #
+# Abajo va el informe individual en Word de una persona (R/utils_informe.R),
+# con el mismo permiso: también lleva nombre y cédula.
+#
 # Los filtros se arman sobre las columnas de la propia vista, con sus rótulos,
 # y no sobre los cruces de Resultados: aquella pestaña cruza con el marco y esta
 # no, así que filtrar por unidad o dependencia aquí no tendría de dónde salir.
@@ -115,6 +118,18 @@ mod_descarga_ui <- function(id) {
                        class = "btn-outline-primary"),
         downloadButton(ns("bajar_filtrado"), "Descargar filtrado",
                        class = "btn-primary")),
+
+    div(
+      class = "res-bloque res-bloque-filtrar des-informe",
+      div(class = "res-bloque-cab",
+          span(class = "res-bloque-eyebrow", "Informe individual"),
+          span(class = "res-bloque-preg",
+               "El formato de entrega de resultados en Word, para una persona.")),
+      uiOutput(ns("informe_aviso")),
+      selectizeInput(ns("persona"), "Persona", choices = NULL, width = "100%",
+                     options = list(placeholder = "Escriba el nombre o la cédula")),
+      downloadButton(ns("bajar_informe"), "Descargar informe (Word)",
+                     class = "btn-primary")),
 
     h5(class = "des-previa-titulo", "Vista previa"),
     uiOutput(ns("previa_nota")),
@@ -265,5 +280,45 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
     )
     output$bajar_todo     <- bajar(TRUE)
     output$bajar_filtrado <- bajar(FALSE)
+
+    # --- informe individual ----------------------------------------------------
+
+    personas <- reactive(if (inf_hay_vista()) inf_personas() else NULL)
+
+    output$informe_aviso <- renderUI({
+      if (is.null(personas()))
+        alerta(paste("La vista", RES_VISTA_EXPORTACION_IND, "no existe todavía.",
+                     "Se crea al correr conectar_bd.R."), "warning")
+    })
+
+    # Del lado del servidor: el buscador no carga en el navegador la lista
+    # entera de nombres y cédulas.
+    observe({
+      p <- personas()
+      if (is.null(p)) return()
+      updateSelectizeInput(
+        session, "persona", server = TRUE, selected = character(0),
+        choices = stats::setNames(p$cedula, sprintf("%s · %s",
+                                                    ifelse(is.na(p$nombre), "Sin nombre", p$nombre),
+                                                    p$cedula)))
+    })
+
+    output$bajar_informe <- downloadHandler(
+      filename = function() {
+        sprintf("informe_individual_%s_%s.docx",
+                gsub("[^0-9A-Za-z]", "", input$persona %||% ""), format(Sys.Date(), "%Y%m%d"))
+      },
+      content = function(archivo) {
+        u <- r$usuario$usuario
+        if (!auth_puede_usuario(u, "descargar_datos"))
+          stop("Su usuario ya no tiene permiso para descargar datos.", call. = FALSE)
+        if (!nzchar(input$persona %||% ""))
+          stop("Elija primero a la persona.", call. = FALSE)
+        p <- inf_datos(input$persona)
+        if (is.null(p)) stop("No hay resultados de esa persona.", call. = FALSE)
+        inf_generar(p, archivo)
+        try(auth_bitacora("informe_individual", u, paste("cédula", input$persona)))
+      }
+    )
   })
 }
