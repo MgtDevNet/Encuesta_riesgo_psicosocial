@@ -2399,3 +2399,11 @@
 .res-cruce-tabla tr.sin-dato > * { color: var(--bs-secondary-color); }
 .res-desc-var.sin-dato > .res-desc-tit { color: var(--bs-secondary-color); }
 .res-desc-tit .res-desc-nn { font-weight: 400; }
+
+/* --- descarga de datos ---------------------------------------------------- */
+
+.des-botones { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 1rem 0 1.4rem; }
+.des-previa-titulo { margin-bottom: 0.3rem; }
+/* La vista tiene decenas de columnas: la tabla se desplaza sola, no la página. */
+.des-previa { overflow-x: auto; max-width: 100%; }
+.des-previa table { font-size: 0.78rem; white-space: nowrap; }

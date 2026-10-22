@@ -74,6 +74,7 @@ source("Modules/mod_seguimiento.R", local = TRUE)
 source("Modules/mod_resultados.R", local = TRUE)
 source("Modules/mod_citaciones.R", local = TRUE)
 source("Modules/mod_usuarios.R", local = TRUE)
+source("Modules/mod_descarga.R", local = TRUE)
 
 
 APP_TITULO <- "Seguimiento riesgo psicosocial"
@@ -241,13 +242,18 @@ server <- function(input, output, session) {
       mod_seguimiento_server("seg", r = r)
 
       # 2) Resultados por grupos de personas, solo con el permiso
-      #    `ver_resultados` (hoy, los cuatro roles)
+      #    `ver_resultados` (hoy, todos los roles)
       if (auth_puede(r$usuario$rol, "ver_resultados")) mod_resultados_server("res", r = r)
 
-      # 3) Grupos de aplicación
-      mod_citaciones_server("cit", r = r)
+      # 3) Descarga de datos, solo con el permiso `descargar_datos`
+      #    (administrador y especialista)
+      if (auth_puede(r$usuario$rol, "descargar_datos")) mod_descarga_server("des", r = r)
 
-      # 4) Administración (usuarios, agenda y bitácora), solo con el permiso
+      # 4) Grupos de aplicación, solo con el permiso `ver_citaciones`
+      #    (todos menos el especialista)
+      if (auth_puede(r$usuario$rol, "ver_citaciones")) mod_citaciones_server("cit", r = r)
+
+      # 5) Administración (usuarios, agenda y bitácora), solo con el permiso
       #    `usuarios` (administrador)
       if (auth_puede(r$usuario$rol, "usuarios")) mod_usuarios_server("usr", r = r)
     },
@@ -281,21 +287,30 @@ pantalla_principal <- function(sesion) {
     ),
 
     # 2) Resultados por grupos de personas, solo con el permiso
-    #    `ver_resultados` (hoy, los cuatro roles)
+    #    `ver_resultados` (hoy, todos los roles)
     if (auth_puede(sesion$rol, "ver_resultados")) tabPanel(
       icon  = icon("users"),
       title = "Resultados",
       mod_resultados_ui("res")
     ),
 
-    # 3) Grupos de aplicacion
-    tabPanel(
+    # 3) Descarga de datos, solo con el permiso `descargar_datos`
+    #    (administrador y especialista)
+    if (auth_puede(sesion$rol, "descargar_datos")) tabPanel(
+      icon  = icon("download"),
+      title = "Descarga de datos",
+      mod_descarga_ui("des")
+    ),
+
+    # 4) Grupos de aplicacion, solo con el permiso `ver_citaciones`
+    #    (todos menos el especialista)
+    if (auth_puede(sesion$rol, "ver_citaciones")) tabPanel(
       icon  = icon("calendar-days"),
       title = "Citaciones",
       mod_citaciones_ui("cit", rol = sesion$rol)
     ),
 
-    # 4) Administración (usuarios, agenda y bitácora), solo con el permiso
+    # 5) Administración (usuarios, agenda y bitácora), solo con el permiso
     #    `usuarios` (administrador)
     if (auth_puede(sesion$rol, "usuarios")) tabPanel(
       icon  = icon("users-gear"),
@@ -303,7 +318,7 @@ pantalla_principal <- function(sesion) {
       mod_usuarios_ui("usr")
     )
 
-    # 5) <siguiente modulo>
+    # 6) <siguiente modulo>
     # tabPanel(icon = icon("table"), title = "...", mod_x_ui("x"))
   )
 }

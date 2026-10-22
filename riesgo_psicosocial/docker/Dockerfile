@@ -18,7 +18,8 @@ RUN R --slave -e '\
         "RPostgres",\
         "stringi",\
         "officer",\
-        "flextable"\
+        "flextable",\
+        "writexl"\
     ), repos="https://cloud.r-project.org")\
     '
 

@@ -4,14 +4,18 @@
 # Sin nada de UI: todo lo de aqui se puede llamar desde el modulo, desde
 # scripts o desde tests.
 #
-# Cuatro roles (AUTH_ROLES). Avance y Citaciones los ven todos; lo que los
-# distingue esta en AUTH_PERMISOS, que es el unico sitio donde se decide:
-#   ver_resultados  ver la pestana Resultados              los cuatro
+# Cinco roles (AUTH_ROLES). Avance lo ven todos; lo que los distingue esta en
+# AUTH_PERMISOS, que es el unico sitio donde se decide:
+#   ver_citaciones  ver la pestana Citaciones              todos menos el
+#                                                          especialista
+#   ver_resultados  ver la pestana Resultados              todos
+#   descargar_datos ver la pestana Descarga de datos y     administrador y
+#                   bajar las respuestas con cedula        especialista
 #   usuarios        administrar cuentas y ver la bitacora  administrador
 #   cargar_agenda   subir el Excel de la agenda            administrador
 #   informe_avance  bajar el informe de avance en Word     administrador
-#   asignar_grupos  ponerle o quitarle el psicologo a      los cuatro
-#                   cualquier grupo
+#   asignar_grupos  ponerle o quitarle el psicologo a      todos menos el
+#                   cualquier grupo                        especialista
 #   tomar_grupos    tomar y soltar sus propios grupos      psicologo
 #   registrar_sesion  registrar la sesion y observar a    psicologo
 #                     cada persona, solo en sus grupos
@@ -40,11 +44,15 @@ AUTH_ROLES <- c(
   administrador = "Administrador",
   coordinador   = "Coordinador",
   auxiliar      = "Auxiliar administrativo",
-  psicologo     = "Psicólogo"
+  psicologo     = "Psicólogo",
+  especialista  = "Especialista"
 )
 
 AUTH_PERMISOS <- list(
-  ver_resultados = c("administrador", "coordinador", "auxiliar", "psicologo"),
+  ver_citaciones = c("administrador", "coordinador", "auxiliar", "psicologo"),
+  ver_resultados = c("administrador", "coordinador", "auxiliar", "psicologo",
+                     "especialista"),
+  descargar_datos = c("administrador", "especialista"),
   usuarios       = "administrador",
   cargar_agenda  = "administrador",
   informe_avance = "administrador",
@@ -56,7 +64,9 @@ AUTH_PERMISOS <- list(
 )
 
 AUTH_PERMISOS_TXT <- c(
+  ver_citaciones   = "ve las citaciones",
   ver_resultados   = "ve los resultados",
+  descargar_datos  = "descarga las respuestas en Excel",
   usuarios         = "administra usuarios y ve la bitácora",
   cargar_agenda    = "carga la agenda de citaciones",
   informe_avance   = "descarga el informe de avance en Word",
@@ -109,7 +119,7 @@ auth_rol_txt <- function(rol) {
 # la pantalla no se desfasa de las reglas.
 auth_rol_descripcion <- function(rol) {
   p <- names(AUTH_PERMISOS)[vapply(AUTH_PERMISOS, function(x) rol %in% x, logical(1))]
-  paste0("ve avance y citaciones",
+  paste0("ve el avance",
          if (length(p)) paste0("; ", paste(AUTH_PERMISOS_TXT[p], collapse = "; ")), ".")
 }
 
@@ -192,6 +202,14 @@ auth_init_db <- function() {
       END IF;
       ALTER TABLE auth.usuarios DROP COLUMN IF EXISTS coordinador;
     END $$", paste0("'", names(AUTH_ROLES), "'", collapse = ", ")))
+
+  # La restriccion se rehace en cada arranque para que acepte los roles de
+  # AUTH_ROLES: el bloque de arriba solo la crea una vez, y una base de antes
+  # del especialista lo rechazaria al crear la cuenta.
+  db_exec(sprintf("
+    ALTER TABLE auth.usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_valido,
+      ADD CONSTRAINT usuarios_rol_valido CHECK (rol IN (%s))",
+    paste0("'", names(AUTH_ROLES), "'", collapse = ", ")))
 
   db_exec("
     CREATE TABLE IF NOT EXISTS auth.bitacora_accesos (

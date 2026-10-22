@@ -22,13 +22,20 @@ alerta <- function(texto, tipo = "danger") {
 #
 # writexl no necesita Java ni escribe nada en disco fuera de `archivo`, que es
 # el que Shiny entrega al navegador.
+#
+# `x` es una tabla, que va en la hoja `hoja`, o una lista con nombre de tablas,
+# una hoja por cada una y en ese orden.
 escribir_excel <- function(x, archivo, hoja = "Datos") {
   if (!requireNamespace("writexl", quietly = TRUE)) {
     stop("Falta el paquete writexl para bajar el archivo en Excel.", call. = FALSE)
   }
-  x <- as.data.frame(x, stringsAsFactors = FALSE)
-  for (v in names(x)) if (is.character(x[[v]])) x[[v]][is.na(x[[v]])] <- ""
-  writexl::write_xlsx(stats::setNames(list(x), hoja), archivo)
+  hojas <- if (is.data.frame(x)) stats::setNames(list(x), hoja) else x
+  hojas <- lapply(hojas, function(h) {
+    h <- as.data.frame(h, stringsAsFactors = FALSE)
+    for (v in names(h)) if (is.character(h[[v]])) h[[v]][is.na(h[[v]])] <- ""
+    h
+  })
+  writexl::write_xlsx(hojas, archivo)
   invisible(archivo)
 }
 
