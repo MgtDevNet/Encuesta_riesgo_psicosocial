@@ -136,7 +136,8 @@ inf_texto <- function(nodo) {
 # Agrega `texto` al final del primer parrafo de `celda` (o del parrafo mismo),
 # con el formato que la plantilla dejo preparado en ese parrafo (w:pPr/w:rPr):
 # asi cada valor sale con la fuente, el tamano y el color del formato.
-inf_escribir <- function(nodo, texto, negrita = NULL) {
+# Con sin_color = TRUE se quita el color de letra de la plantilla.
+inf_escribir <- function(nodo, texto, negrita = NULL, sin_color = FALSE) {
   p <- if (xml2::xml_name(nodo) == "p") nodo
        else xml2::xml_find_first(nodo, ".//w:p", INF_NS)
   r <- xml2::xml_add_child(p, "w:r")
@@ -145,6 +146,8 @@ inf_escribir <- function(nodo, texto, negrita = NULL) {
     nuevo <- xml2::xml_add_child(r, rpr)
     if (isFALSE(negrita))
       xml2::xml_remove(xml2::xml_find_all(nuevo, "./w:b | ./w:bCs", INF_NS))
+    if (sin_color)
+      xml2::xml_remove(xml2::xml_find_all(nuevo, "./w:color | ./w:highlight | ./w:shd", INF_NS))
   }
   t <- xml2::xml_add_child(r, "w:t", texto)
   xml2::xml_set_attr(t, "xml:space", "preserve")
@@ -248,7 +251,9 @@ inf_generar <- function(p, archivo, plantilla = INF_PLANTILLA) {
     if (length(faltan)) stop("La vista no tiene las columnas: ", paste(faltan, collapse = ", "),
                              call. = FALSE)
     inf_escribir(cel[[n - 1]], inf_num(p[[k[["puntaje"]]]]))
-    inf_escribir(cel[[n]],     inf_nivel(p[[k[["nivel"]]]]))
+    # El nivel va solo en letras: los colores de la plantilla no corresponden
+    # al nivel de cada persona.
+    inf_escribir(cel[[n]],     inf_nivel(p[[k[["nivel"]]]]), sin_color = TRUE)
   }
   falta <- setdiff(names(INF_FILAS), vistos)
   if (length(falta)) stop("La plantilla no tiene las filas de resultados: ",
