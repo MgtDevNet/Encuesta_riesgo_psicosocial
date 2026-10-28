@@ -54,3 +54,6 @@ Simulacion_respuestas_ODK.csv
 
 # --- Instrucciones locales para el servidor ---
 PASOS_SERVIDOR.txt
+
+# --- Informes de trabajo (Word, borradores, figuras): nunca van a git ---
+informes/
