@@ -667,6 +667,61 @@ res_categorias <- function(d, cruce) {
   sort(unique(v[!is.na(v) & nzchar(trimws(v))]))
 }
 
+# --- desagregar por dos variables ---------------------------------------------
+# La desagregación admite una segunda variable, y no más: con tres los grupos
+# se achican hasta quedar casi todos reservados. Las dos se funden en UNA
+# columna sintética --"Facultad de Medicina · Forma B"-- y desde ahí todo el
+# cálculo es el de siempre, que recibe el nombre de una columna como cruce. No
+# hay un segundo camino de cálculo que pueda discrepar del primero.
+RES_COL_DESAG <- ".desag"
+RES_SEP_DESAG <- " · "
+
+# La columna por la que se agrupa: la variable misma si es una sola, la
+# sintética si son dos. "" si no hay desagregación.
+res_col_desag <- function(cv1, cv2 = "") {
+  if (!nzchar(cv1)) return("")
+  if (nzchar(cv2)) RES_COL_DESAG else cv1
+}
+
+res_rotulo_desag <- function(cv1, cv2 = "") {
+  if (!nzchar(cv1)) return("")
+  if (!nzchar(cv2)) return(RES_CRUCES[[cv1]])
+  sprintf("%s × %s", RES_CRUCES[[cv1]], tolower(RES_CRUCES[[cv2]]))
+}
+
+# La forma va como "Forma B" y no como "B" a secas: dentro de la combinación
+# no hay cabecera que diga qué es esa letra.
+res_valor_desag <- function(d, cv) {
+  v <- as.character(d[[cv]])
+  if (identical(cv, "forma")) ifelse(v %in% c("A", "B"), paste("Forma", v), v)
+  else v
+}
+
+res_con_desag <- function(d, cv1, cv2 = "") {
+  if (is.null(d) || !nzchar(cv1) || !nzchar(cv2)) return(d)
+  d[[RES_COL_DESAG]] <- paste(res_valor_desag(d, cv1), res_valor_desag(d, cv2),
+                              sep = RES_SEP_DESAG)
+  d
+}
+
+# La forma de cada grupo, cuando la desagregación pasa por la forma: cada
+# columna tiene entonces gente de UNA sola forma. NA si el grupo no tiene
+# forma conocida ("Sin dato"), y se compara contra el total.
+res_forma_de_grupos <- function(d, col, cats) {
+  stats::setNames(vapply(cats, function(ct) {
+    f <- unique(d$forma[!is.na(d[[col]]) & d[[col]] == ct])
+    f <- f[f %in% c("A", "B")]
+    if (length(f) == 1) f else NA_character_
+  }, ""), cats)
+}
+
+# Con dos variables los grupos van por orden de nombre, que es orden por la
+# primera variable: "Medicina · Forma A" y "Medicina · Forma B" quedan juntas y
+# se leen como lo que son, dos partes del mismo grupo.
+res_ordenar_nombre <- function(xs) {
+  xs[order(vapply(xs, function(x) x$categoria, ""))]
+}
+
 # `cats` deja fijar la lista de grupos desde fuera. Hace falta desde que cada
 # cuestionario tiene su vista: los grupos se cuentan sobre la poblacion de la
 # vista --los de la forma B, si es la que se esta mirando-- pero la LISTA es la

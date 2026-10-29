@@ -137,8 +137,15 @@ mod_resultados_ui <- function(id) {
         # Solo aparece con un cruce elegido: sin desagregación no hay nada que
         # quitar. Es un conditionalPanel y no un renderUI para que el selector
         # de arriba no se reconstruya al aparecer el botón.
+        #
+        # La segunda variable va en el mismo panel: sin la primera no tiene
+        # sentido. Sus opciones excluyen la primera (ver el server).
         conditionalPanel(
           condition = "input.desagregar !== ''", ns = ns,
+          selectInput(ns("desagregar2"), "Y luego por", width = "100%",
+                      choices  = c("Nada más" = "",
+                                   stats::setNames(names(RES_CRUCES), unname(RES_CRUCES))),
+                      selected = ""),
           actionButton(ns("quitar_desag"), "Quitar desagregación",
                        icon = icon("xmark"),
                        class = "btn-sm btn-outline-secondary res-quitar-desag")),
@@ -435,8 +442,34 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
     })
 
     comparar   <- reactive(identical(input$comparar %||% "univ", "univ"))
-    desagregar <- reactive(input$desagregar %||% "")
     medida     <- reactive(input$medida %||% "tot_estres")
+
+    # La desagregación son hasta DOS variables. `desagregar()` es la COLUMNA
+    # por la que se agrupa --la variable misma, o la sintética que funde las
+    # dos (ver res_con_desag())-- y `rot_desag()` su rótulo. La segunda solo
+    # cuenta si hay primera y es otra variable.
+    desag1 <- reactive(input$desagregar %||% "")
+    desag2 <- reactive({
+      v <- input$desagregar2 %||% ""
+      if (!nzchar(desag1()) || identical(v, desag1())) "" else v
+    })
+    desagregar <- reactive(res_col_desag(desag1(), desag2()))
+    rot_desag  <- reactive(res_rotulo_desag(desag1(), desag2()))
+    con_desag  <- function(d) res_con_desag(d, desag1(), desag2())
+
+    # Si una de las dos es la forma, cada grupo tiene gente de UNA forma y se
+    # compara contra esa misma forma en la universidad. Comparar "Medicina ·
+    # Forma B" contra A y B juntas sería medir la composición, no a la gente.
+    por_forma <- reactive("forma" %in% c(desag1(), desag2()))
+
+    # La segunda variable no puede repetir la primera.
+    observeEvent(desag1(), {
+      sel <- input$desagregar2 %||% ""
+      opc <- setdiff(names(RES_CRUCES), desag1())
+      updateSelectInput(session, "desagregar2",
+        choices  = c("Nada más" = "", stats::setNames(opc, unname(RES_CRUCES[opc]))),
+        selected = if (nzchar(desag1()) && sel %in% opc) sel else "")
+    }, ignoreInit = TRUE)
 
     # Por debajo del mínimo no se calcula nada: es la puerta que impide que un
     # porcentaje delate una respuesta individual.
@@ -608,6 +641,7 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
     # solas, porque cuelgan de desagregar().
     observeEvent(input$quitar_desag, {
       updateSelectInput(session, "desagregar", selected = "")
+      updateSelectInput(session, "desagregar2", selected = "")
     })
 
     # El aviso de reserva va pegado a la cabecera: es lo primero que hay que
@@ -855,21 +889,67 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
     # sección en que se mire, que es justo lo que este módulo evita.
     ctx_medida <- reactive(bloque_de(medida()))
 
+    # El segmento con la columna de la desagregación, que con dos variables es
+    # la sintética.
+    seg_desag <- reactive(con_desag(segmento()))
+    cats_desag <- reactive({
+      if (!hay_segmento() || !nzchar(desagregar())) return(character(0))
+      res_categorias(seg_desag(), desagregar())
+    })
+
+    # El contexto de un cuestionario tal como lo usa la desagregación. Con la
+    # forma entre las variables la vista NO se aplica --cada grupo ya es de una
+    # sola forma, y con la vista en B los grupos de la A saldrían vacíos-- y la
+    # referencia pasa a ser la de la forma de cada grupo (ref_de_grupo()).
+    ctx_desag <- function(ctx) {
+      if (is.null(ctx)) return(NULL)
+      if (por_forma()) {
+        ks <- res_claves_bloque(ctx$b, "T")
+        ctx$vista  <- "T"
+        ctx$claves <- ks
+        ctx$seg    <- segmento()
+        ctx$n      <- nrow(ctx$seg)
+        ctx$ref    <- res_referencia(datos(), ks)
+        ctx$por_forma <- TRUE
+      }
+      ctx$seg <- con_desag(ctx$seg)
+      ctx
+    }
+    ctx_medida_desag <- reactive(ctx_desag(ctx_medida()))
+
+    # La universidad partida por forma, para comparar cada grupo con la suya.
+    ref_univ_forma <- reactive({
+      d <- datos()
+      if (is.null(d) || !nrow(d)) return(NULL)
+      list(A = res_referencia(res_vista(d, "A"), RES_CLAVES),
+           B = res_referencia(res_vista(d, "B"), RES_CLAVES))
+    })
+
+    forma_grupos <- reactive({
+      if (!por_forma()) return(NULL)
+      res_forma_de_grupos(seg_desag(), desagregar(), cats_desag())
+    })
+
+    # La referencia de un grupo en una medida: la de su forma si la
+    # desagregación pasa por la forma, la del cuestionario si no.
+    ref_de_grupo <- function(ctx, k, ct) {
+      f <- if (por_forma()) unname(forma_grupos()[ct]) else NA_character_
+      if (is.na(f)) return(unname(ctx$ref[k]))
+      unname(ref_univ_forma()[[f]][k])
+    }
+
     grupos <- reactive({
-      ctx <- ctx_medida()
+      ctx <- ctx_medida_desag()
       if (is.null(ctx) || !nzchar(desagregar())) return(list())
-      res_por_grupo(ctx$seg, desagregar(), medida(),
-                    cats = res_categorias(segmento(), desagregar()))
+      g <- res_por_grupo(ctx$seg, desagregar(), medida(), cats = cats_desag())
+      if (nzchar(desag2())) res_ordenar_nombre(g) else g
     })
 
     # Cuántos grupos salen del cruce. Se cuenta sobre el SEGMENTO y no sobre la
     # vista, para que las banderas de las cabeceras estáticas no se muevan al
     # cambiar de medida --una medida de otro cuestionario puede traer otra
     # forma-- y para que las columnas del mapa sean las mismas en los tres.
-    n_grupos <- reactive({
-      if (!hay_segmento() || !nzchar(desagregar())) return(0L)
-      length(res_categorias(segmento(), desagregar()))
-    })
+    n_grupos <- reactive(length(cats_desag()))
 
     output$hay_grupos    <- reactive(n_grupos() > 0)
     output$hay_mapa      <- reactive(n_grupos() >= 2)
@@ -895,19 +975,21 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
     # los grupos quiere ver los del cruce nuevo, no volver a desplegar.
     # Prioridad alta para que corra ANTES de que el mapa se redibuje con el
     # cruce nuevo y lea `mapa_abiertos`.
+    # La clave es la pareja de variables: cambiar solo la segunda también trae
+    # otra tabla, aunque la columna sintética se llame igual.
     desag_previa <- ""
-    observeEvent(desagregar(), priority = 10, {
+    observeEvent(list(desag1(), desag2()), priority = 10, {
       for (id in ids_bloque) mapa_abiertos[[id]] <- FALSE
-      if (!nzchar(desag_previa) && nzchar(desagregar()))
+      if (!nzchar(desag_previa) && nzchar(desag1()))
         session$sendCustomMessage("res-plegar", ns("desag_det"))
-      desag_previa <<- desagregar()
+      desag_previa <<- desag1()
     })
 
     output$desag_sub <- renderUI({
       n <- n_grupos()
       if (!n) return(NULL)
       sprintf("Por %s · %s %s en este segmento. Despliegue para ver la distribución y el mapa.",
-              tolower(RES_CRUCES[[desagregar()]]), fmt_num(n),
+              tolower(rot_desag()), fmt_num(n),
               if (n == 1) "grupo" else "grupos")
     })
 
@@ -916,24 +998,26 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
       if (!n) return(NULL)
       ctx <- ctx_medida()
       tagList(
-        h5(sprintf("Comparar por %s", tolower(RES_CRUCES[[desagregar()]]))),
+        h5(sprintf("Comparar por %s", tolower(rot_desag()))),
         p(class = "text-muted small mb-0",
           sprintf("%s %s en este segmento.", fmt_num(n),
                   if (n == 1) "grupo disponible" else "grupos disponibles"),
           # De qué población habla esta sección. Va aquí y no en una nota al
           # pie porque cambia el denominador de todas las filas de abajo.
-          if (!is.null(ctx) && !identical(ctx$vista, "T"))
+          if (por_forma())
+            paste(" Cada grupo es de una sola forma y se compara con esa misma",
+                  "forma en la universidad; aquí no se aplica la vista elegida arriba.")
+          else if (!is.null(ctx) && !identical(ctx$vista, "T"))
             sprintf(" Sobre la forma %s de %s, que es la vista elegida en ese cuestionario.",
                     ctx$vista, tolower(ctx$b$titulo))))
     })
 
     output$desagregacion <- renderUI({
       g   <- grupos()
-      ctx <- ctx_medida()
+      ctx <- ctx_medida_desag()
       if (!length(g) || is.null(ctx)) return(NULL)
 
       k   <- medida()
-      cv  <- desagregar()
       cmp <- comparar()
 
       # La referencia es la misma de todo el cuestionario: esa medida en la
@@ -957,7 +1041,7 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
         h6(class = "res-sub", "Distribución en los cinco niveles"),
         res_leyenda_niveles(),
         div(class = "res-filas",
-            res_encabezado_filas(RES_CRUCES[[cv]], "la universidad",
+            res_encabezado_filas(rot_desag(), "la universidad",
                                  dist = TRUE, comparar = cmp),
             res_fila_grupo(
               if (identical(ctx$vista, "T")) "Todo el segmento"
@@ -965,17 +1049,27 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
               ctx$n, res_reparto(ctx$seg[[k]]),
               if (hay_comparacion()) u else NA_real_, total = TRUE,
               vacio = if (cmp) "referencia" else "—"),
-            lapply(g, function(x)
-              res_fila_grupo(x$categoria, x$n_grupo, x$rep, u))),
+            lapply(g, function(x) {
+              f <- if (por_forma()) unname(forma_grupos()[x$categoria]) else NA
+              res_fila_grupo(
+                x$categoria, x$n_grupo, x$rep,
+                if (cmp) ref_de_grupo(ctx, k, x$categoria) else NA_real_,
+                motivo = if (identical(f, "B") && k %in% RES_SOLO_A_CLAVES)
+                  "Esta medida solo existe en la forma A")
+            })),
         res_micro(
-          "Los grupos van ordenados por su porcentaje en riesgo alto o muy alto.",
+          if (nzchar(desag2()))
+            "Los grupos van por orden de nombre, así que los de una misma primera variable quedan juntos."
+          else "Los grupos van ordenados por su porcentaje en riesgo alto o muy alto.",
           if (!identical(ctx$vista, "T"))
             sprintf(paste("Solo cuenta quien contestó la forma %s: un grupo sin",
                           "nadie de esa forma sale reservado, no desaparece."),
                     ctx$vista),
           if (cmp) paste("El pp de la derecha compara cada grupo con esa misma",
-                         "medida en la universidad, igual que el ranking y el",
-                         "mapa, y es una diferencia descriptiva: no se ha",
+                         "medida en la universidad",
+                         if (por_forma()) "--en su misma forma--,"
+                         else ", igual que el ranking y el mapa,",
+                         "y es una diferencia descriptiva: no se ha",
                          "aplicado ninguna prueba."))
       )
     })
@@ -995,15 +1089,30 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
       gg   <- res_top_grupos(g, tope)
       cats <- vapply(Filter(function(x) !is.null(x$rep), gg), function(x) x$categoria, "")
       if (!length(cats)) return(NULL)
+      # El recorte a los 20 de más riesgo ya se hizo; con dos variables las
+      # columnas que quedan van por nombre, igual que la lista de arriba.
+      if (nzchar(desag2())) cats <- sort(cats)
 
       cv <- desagregar()
-      s  <- segmento()
+      s  <- seg_desag()
       n_de <- stats::setNames(
         vapply(cats, function(ct) sum(!is.na(s[[cv]]) & s[[cv]] == ct), 0L), cats)
 
       met <- if (comparar()) input$metrica %||% "pct" else "pct"
-      ms  <- lapply(bl, function(ctx)
-        c(ctx, list(m = res_matriz(ctx$seg, cv, cats, ctx$claves))))
+      # Con la forma entre las variables cada columna tiene su referencia: la
+      # de su forma en la universidad. `ref_m` es esa matriz medida x grupo.
+      ms  <- lapply(bl, function(ctx) {
+        ctx <- ctx_desag(ctx)
+        ctx$m <- res_matriz(ctx$seg, cv, cats, ctx$claves)
+        if (isTRUE(ctx$por_forma)) {
+          ctx$ref_m <- vapply(cats, function(ct)
+            vapply(ctx$claves, function(k) ref_de_grupo(ctx, k, ct), 0),
+            numeric(length(ctx$claves)))
+          dim(ctx$ref_m) <- c(length(ctx$claves), length(cats))
+          dimnames(ctx$ref_m) <- list(ctx$claves, cats)
+        }
+        ctx
+      })
 
       tagList(
         if (length(gg) < length(g))
@@ -1013,14 +1122,19 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
         res_leyenda_mapa(met),
         # Aislado, igual que `abiertos` en el ranking: el navegador ya pliega y
         # despliega solo, y depender de esto redibujaría el mapa en cada clic.
-        res_mapa_calor(ms, cats, n_de, met, RES_CRUCES[[cv]],
-                       abiertos = isolate(reactiveValuesToList(mapa_abiertos))),
+        res_mapa_calor(ms, cats, n_de, met, rot_desag(),
+                       abiertos = isolate(reactiveValuesToList(mapa_abiertos)),
+                       forma_de = forma_grupos()),
         res_micro(
           if (identical(met, "delta"))
             paste("Escala centrada en cero: por debajo de cero el grupo está mejor",
                   "que la universidad en esa medida; por encima, peor.")
           else "Porcentaje del grupo en los dos niveles superiores de riesgo.",
-          "La n de cada columna es la del segmento entero; cada cuestionario dice aparte sobre qué forma habla.")
+          if (por_forma())
+            paste("La n de cada columna es la del segmento entero. Cada columna es",
+                  "de una sola forma y se compara con esa forma en la universidad;",
+                  "aquí no se aplica la vista elegida arriba.")
+          else "La n de cada columna es la del segmento entero; cada cuestionario dice aparte sobre qué forma habla.")
       )
     })
 
@@ -1550,14 +1664,17 @@ res_barra_apilada <- function(rep, nombre = "") {
 # `ref_alto` es el porcentaje de la universidad en la medida, o NA si no hay con
 # qué comparar; entonces la columna dice `vacio`. La diferencia lleva color y
 # símbolo, como en el ranking: es el mismo pp contra la misma referencia.
+# `motivo` reemplaza el texto de reservado cuando el grupo no tiene la medida
+# por otra razón: un grupo de la forma B en una dimensión que solo tiene la A.
 res_fila_grupo <- function(nombre, n, rep, ref_alto = NA_real_, total = FALSE,
-                           vacio = "—") {
+                           vacio = "—", motivo = NULL) {
   if (is.null(rep)) {
     return(div(
       class = "res-fila res-fila-reservada",
       div(class = "res-nom", nombre, tags$em(sprintf("n = %s", fmt_num(n)))),
       div(class = "res-reservado",
-          sprintf("Resultado reservado: menos de %s encuestas efectivas", RES_MIN_N)),
+          motivo %||% sprintf("Resultado reservado: menos de %s encuestas efectivas",
+                              RES_MIN_N)),
       div(class = "res-val", "—"),
       div(class = "res-delta", "—")))
   }
@@ -1664,9 +1781,12 @@ res_cab_bloque_tabla <- function(ctx, ncols, n_filas, abierto = TRUE,
         `aria-expanded` = if (abierto) "true" else "false",
         tags$span(class = "res-tb-flecha", `aria-hidden` = "true"),
         tags$span(class = "res-tb-tit", ctx$b$titulo),
+        # Desagregando por forma no hay vista: cada columna lleva la suya.
         tags$span(class = paste("res-bl-vista",
-                                if (!identical(ctx$vista, "T")) "forma"),
-                  res_vista_txt(ctx$vista)),
+                                if (!identical(ctx$vista, "T") || isTRUE(ctx$por_forma))
+                                  "forma"),
+                  if (isTRUE(ctx$por_forma)) "Forma de cada columna"
+                  else res_vista_txt(ctx$vista)),
         tags$span(class = "res-tb-sub",
                   sprintf("%s · n = %s · %s", ctx$b$sub, fmt_num(ctx$n), cuenta)),
         if (!is.null(nota)) tags$span(class = "res-tb-nota", nota))))
@@ -1718,13 +1838,24 @@ res_banda <- function(v, lo, hi, metrica) {
 # `abiertos` dice qué cuestionarios van desplegados, por id. Por defecto
 # ninguno: el mapa entero son decenas de filas por cuestionario, y plegados lo
 # primero que se ve son los tres títulos con su n.
+#
+# `ctx$ref_m`, si viene, es la referencia por celda --medida x grupo-- y manda
+# sobre `ctx$ref`: es el caso de la desagregación por forma, donde cada columna
+# se compara con su forma en la universidad. `forma_de` dice entonces la forma
+# de cada columna, para el globo.
 res_mapa_calor <- function(bloques, cats, n_de, metrica, rotulo_cruce,
-                           abiertos = list()) {
+                           abiertos = list(), forma_de = NULL) {
+
+  ref_de <- function(ctx, k, ct) {
+    if (!is.null(ctx$ref_m)) unname(ctx$ref_m[k, ct]) else unname(ctx$ref[k])
+  }
 
   vals <- unlist(lapply(bloques, function(ctx) {
-    if (identical(metrica, "delta"))
-      as.vector(ctx$m - ctx$ref[rownames(ctx$m)])
-    else as.vector(ctx$m)
+    if (identical(metrica, "delta")) {
+      r <- if (!is.null(ctx$ref_m)) ctx$ref_m[rownames(ctx$m), colnames(ctx$m)]
+           else ctx$ref[rownames(ctx$m)]
+      as.vector(ctx$m - r)
+    } else as.vector(ctx$m)
   }), use.names = FALSE)
   vals <- vals[!is.na(vals)]
   lo <- if (length(vals)) min(vals) else 0
@@ -1732,7 +1863,8 @@ res_mapa_calor <- function(bloques, cats, n_de, metrica, rotulo_cruce,
 
   celda <- function(ctx, k, ct) {
     v <- ctx$m[k, ct]
-    d <- if (is.na(v)) NA_real_ else round(v - unname(ctx$ref[k]), 1)
+    r <- ref_de(ctx, k, ct)
+    d <- if (is.na(v) || is.na(r)) NA_real_ else round(v - r, 1)
     val <- if (identical(metrica, "delta")) d else v
 
     txt <- if (is.na(val)) "res." else if (identical(metrica, "delta")) {
@@ -1742,21 +1874,30 @@ res_mapa_calor <- function(bloques, cats, n_de, metrica, rotulo_cruce,
 
     # El globo dice la vista: la misma celda vale otra cosa en la forma A que
     # en el total, y aquí no hay cabecera de bloque a la vista si la tabla se
-    # ha desplazado.
-    forma <- if (identical(ctx$vista, "T")) "todas las formas"
+    # ha desplazado. Desagregando por forma, la forma es la de la columna.
+    fc <- if (!is.null(forma_de)) unname(forma_de[ct]) else NA_character_
+    forma <- if (!is.na(fc)) sprintf("forma %s", fc)
+             else if (identical(ctx$vista, "T")) "todas las formas"
              else sprintf("forma %s", ctx$vista)
 
     tags$td(
       class = paste("res-cel", res_banda(val, lo, hi, metrica)),
-      title = if (is.na(v)) {
+      title = if (is.na(v) && identical(fc, "B") && k %in% RES_SOLO_A_CLAVES) {
+        sprintf("%s · %s: esta medida solo existe en la forma A.",
+                ct, RES_ROTULOS[[k]])
+      } else if (is.na(v)) {
         sprintf("%s · %s (%s): resultado reservado (menos de %s encuestas efectivas).",
                 ct, RES_ROTULOS[[k]], forma, RES_MIN_N)
+      } else if (is.na(d)) {
+        sprintf("Grupo: %s (n = %s en el segmento)\nMedida: %s (%s)\nValor: %s en riesgo alto o muy alto",
+                ct, fmt_num(unname(n_de[ct])), RES_ROTULOS[[k]], forma, fmt_pct(v))
       } else {
         sprintf(paste("Grupo: %s (n = %s en el segmento)\nMedida: %s (%s)",
-                      "\nValor: %s en riesgo alto o muy alto\nUniversidad: %s",
+                      "\nValor: %s en riesgo alto o muy alto\nUniversidad%s: %s",
                       "\nDiferencia: %s%s pp"),
                 ct, fmt_num(unname(n_de[ct])), RES_ROTULOS[[k]], forma,
-                fmt_pct(v), fmt_pct(unname(ctx$ref[k])),
+                fmt_pct(v), if (!is.na(fc)) sprintf(" (forma %s)", fc) else "",
+                fmt_pct(r),
                 if (d > 0) "+" else if (d < 0) "−" else "±", fmt_num(abs(d), 1))
       },
       txt)
