@@ -14,12 +14,13 @@
 # con el mismo permiso: también lleva nombre y cédula.
 #
 # Los filtros se arman sobre las columnas de la propia vista, con sus rótulos,
-# y no sobre los cruces de Resultados: aquella pestaña cruza con el marco y esta
-# no, así que filtrar por unidad o dependencia aquí no tendría de dónde salir.
+# y no sobre los cruces de Resultados. Unidad y Dependencia las trae la vista
+# desde el marco (o de empleados_no_registrados para quien no está en él).
 
 # Variables que se filtran eligiendo valores, y las que se filtran por rango.
 # Si la vista deja de traer alguna, su filtro simplemente no se dibuja.
 DES_FILTROS_LISTA <- c(
+  "Unidad", "Dependencia",
   "Forma", "Sexo", "Estado civil", "Nivel académico", "Estrato",
   "Tipo de vivienda", "Personas a cargo", "Horas diarias de trabajo",
   "Tipo de salario", "Cargo", "Área")

@@ -1298,9 +1298,12 @@ res_crear_vista_exportacion <- function() {
     return(invisible(FALSE))
   }
 
+  # Unidad y dependencia salen del marco: sin el, la vista general se crea
+  # igual pero sin esas dos columnas (y Descarga no dibuja sus filtros).
+  marco <- hay("seguimiento", "marco") &&
+    hay("seguimiento", "empleados_no_registrados")
   vistas <- list(list(nombre = RES_VISTA_EXPORTACION, puntajes = FALSE))
-  if (res_hay_columna("pt_total_estres") && hay("seguimiento", "marco") &&
-      hay("seguimiento", "empleados_no_registrados"))
+  if (res_hay_columna("pt_total_estres") && marco)
     vistas[[2]] <- list(nombre = RES_VISTA_EXPORTACION_IND, puntajes = TRUE)
 
   # CREATE OR REPLACE VIEW no deja quitar ni renombrar columnas: se rehacen.
@@ -1308,7 +1311,7 @@ res_crear_vista_exportacion <- function() {
   db_exec(sprintf("DROP VIEW IF EXISTS %s", RES_VISTA_EXPORTACION))
   db_exec(sprintf("DROP VIEW IF EXISTS %s", RES_VISTA_EXPORTACION_IND))
 
-  for (v in vistas) res_crear_vista_export_una(v$nombre, v$puntajes)
+  for (v in vistas) res_crear_vista_export_una(v$nombre, v$puntajes, marco)
   invisible(TRUE)
 }
 
@@ -1318,7 +1321,10 @@ res_crear_vista_exportacion <- function() {
 # prefijo Dim./Dom./Extra. porque con el no cabe en los 63 bytes de Postgres
 # ("Puntaje Extra. Influencia del entorno extralaboral sobre el trabajo"); los
 # rotulos no se repiten entre niveles, asi que no hay confusion.
-res_crear_vista_export_una <- function(nombre, puntajes) {
+#
+# Con `marco` las dos llevan Unidad (DESCRIPCION_UNIDAD de la nomina, la
+# tipo_dependencia del marco) y Dependencia, que son las que filtra Descarga.
+res_crear_vista_export_una <- function(nombre, puntajes, marco = TRUE) {
   # Un nombre de columna suelto es de respuestas_procesadas, y va con su alias:
   # la vista del informe une con el marco, que tambien tiene sexo, nombre y
   # forma_cuestionario.
@@ -1355,11 +1361,12 @@ res_crear_vista_export_una <- function(nombre, puntajes) {
 
   columnas <- c(
     col("id_anonimizado",     "Cédula"),
-    if (puntajes) c(
-      col("COALESCE(m.nombre, n.nombre)",           "Nombre"),
-      col("COALESCE(m.dependencia, n.dependencia)", "Dependencia"),
-      col("(r.submission_date AT TIME ZONE 'America/Bogota')::date",
-          "Fecha de aplicación")),
+    if (puntajes) col("COALESCE(m.nombre, n.nombre)", "Nombre"),
+    if (marco) c(
+      col("COALESCE(m.tipo_dependencia, n.tipo_dependencia)", "Unidad"),
+      col("COALESCE(m.dependencia, n.dependencia)",           "Dependencia")),
+    if (puntajes) col("(r.submission_date AT TIME ZONE 'America/Bogota')::date",
+                      "Fecha de aplicación"),
     col("forma_cuestionario", "Forma"),
     col("sexo",               "Sexo"),
     col("nacimiento",         "Fecha de nacimiento"),
@@ -1390,13 +1397,14 @@ res_crear_vista_export_una <- function(nombre, puntajes) {
         "total intralaboral + extralaboral"),
     par("clas_total_estres",              "Estrés", "estrés"))
 
-  # Nombre y dependencia salen del marco y, para quien no esta en el, de
+  # Nombre, unidad y dependencia salen del marco y, para quien no esta en el, de
   # empleados_no_registrados (la fila de la etapa mas reciente). De las tablas y
   # no de seguimiento.marco_completo: esa vista se borra y se rehace cuando
   # cambian las columnas del marco, y no podria si esta dependiera de ella.
-  personas <- if (puntajes) "
+  personas <- if (marco) "
       LEFT JOIN seguimiento.marco m ON m.id_anonimizado = r.id_anonimizado
-      LEFT JOIN (SELECT DISTINCT ON (id_anonimizado) id_anonimizado, nombre, dependencia
+      LEFT JOIN (SELECT DISTINCT ON (id_anonimizado) id_anonimizado, nombre,
+                        dependencia, tipo_dependencia
                    FROM seguimiento.empleados_no_registrados
                   ORDER BY id_anonimizado, detectado_en DESC) n
              ON n.id_anonimizado = r.id_anonimizado" else ""

@@ -213,14 +213,19 @@ inf_generar <- function(p, archivo, plantilla = INF_PLANTILLA) {
     if (length(cel) != 2) next
     rot <- sub(":\\s*$", "", inf_texto(cel[[1]]))
     if (rot == "Departamento o sección") {
-      # Se parte en dos filas: la dependencia del marco y el area que la
-      # persona escribio en la encuesta.
-      copia <- xml2::xml_add_sibling(fila, fila, .where = "after")
-      inf_reemplazar(cel[[1]], "Dependencia: ")
-      inf_escribir(cel[[2]], inf_txt(p[["Dependencia"]]))
-      cel2 <- inf_celdas(copia)
-      inf_reemplazar(cel2[[1]], "Área: ")
-      inf_escribir(cel2[[2]], inf_txt(p[["Área"]]))
+      # Se parte en tres filas: la unidad y la dependencia del marco, y el
+      # area que la persona escribio en la encuesta. Las copias se sacan antes
+      # de escribir en la original, para que salgan con la celda vacia.
+      c_dep  <- xml2::xml_add_sibling(fila, fila, .where = "after")
+      c_area <- xml2::xml_add_sibling(c_dep, fila, .where = "after")
+      inf_reemplazar(cel[[1]], "Unidad: ")
+      inf_escribir(cel[[2]], inf_txt(p[["Unidad"]]))
+      cel2 <- inf_celdas(c_dep)
+      inf_reemplazar(cel2[[1]], "Dependencia: ")
+      inf_escribir(cel2[[2]], inf_txt(p[["Dependencia"]]))
+      cel3 <- inf_celdas(c_area)
+      inf_reemplazar(cel3[[1]], "Área: ")
+      inf_escribir(cel3[[2]], inf_txt(p[["Área"]]))
       vistos <- c(vistos, rot)
     } else if (rot %in% names(valores)) {
       inf_escribir(cel[[2]], valores[[rot]])
