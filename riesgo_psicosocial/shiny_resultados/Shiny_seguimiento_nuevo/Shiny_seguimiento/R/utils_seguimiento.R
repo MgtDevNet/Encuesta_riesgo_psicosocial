@@ -61,7 +61,8 @@ seg_init_db <- function() {
                 "secuencvinculac", "categoria", "categoria_1", "nro_contrato_cat",
                 "fechainivinc", "fechafinvinc", "col_15", "oficio", "oficio_1",
                 "grupo", "codigo_unidad", "descripcion_unidad", "codigo_dependencia",
-                "descripcion_dependencia", "totalvinc", "totalempl")) {
+                "descripcion_dependencia", "totalvinc", "totalempl",
+                "grupo_categoria")) {
     db_exec(sprintf("ALTER TABLE seguimiento.marco ADD COLUMN IF NOT EXISTS %s text", col))
   }
   db_exec("CREATE INDEX IF NOT EXISTS idx_marco_dep
@@ -288,6 +289,17 @@ seg_incluir_no_registrados <- function() {
   v == "si"
 }
 
+# --- vinculados despues del corte ---------------------------------------------
+# El marco trae a toda la nomina, pero solo se espera a quien se vinculo hasta
+# la fecha de corte (FECHAINIVINC): esos entran como 'Activo' y son el
+# denominador. Los de despues entran con SEG_POST_CORTE, que la app trata como
+# no elegible. Si alguno responde, la pestana Avance lo lista y alguien decide
+# si se usa su respuesta (seguimiento.decision_post_corte): con "usar" pasa a
+# contar en todo --esperados, avance y Resultados-- como cualquier activo. Lo
+# hace la vista marco_completo, asi que ninguna consulta tiene que saberlo.
+SEG_CORTE_VINCULACION <- as.Date("2026-05-01")
+SEG_POST_CORTE        <- "Vinculado después del corte"
+
 seg_crear_marco_completo <- function() {
   # Personas borradas desde la app (ver seg_borrar_persona()). Va aqui porque
   # la vista de abajo la usa: quien esta en esta tabla no existe para la app.
@@ -336,11 +348,37 @@ seg_crear_marco_completo <- function() {
                ADD PRIMARY KEY (id_anonimizado, etapa)")
   }
 
+  # Una fila por persona y etapa, solo si ya se decidio: sin fila, la respuesta
+  # esta pendiente y no se usa. Reabrir es borrar la fila.
+  db_exec("
+    CREATE TABLE IF NOT EXISTS seguimiento.decision_post_corte (
+      id_anonimizado text        NOT NULL,
+      etapa          text        NOT NULL,
+      usar           boolean     NOT NULL,
+      decidido_por   text,
+      decidido_en    timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (id_anonimizado, etapa)
+    )")
+
   cols <- db_get("
     SELECT column_name FROM information_schema.columns
      WHERE table_schema = 'seguimiento' AND table_name = 'marco'
      ORDER BY ordinal_position")$column_name
   if (length(cols) == 0) return(invisible(FALSE))
+
+  # Las columnas del marco tal cual, salvo el estado: quien se vinculo despues
+  # del corte y tiene la decision "usar" en la etapa activa cuenta como activo.
+  # Literales y no parametros, como la etapa de abajo: una vista no los admite,
+  # y los dos valores son constantes del codigo.
+  estado_m <- sprintf("
+           CASE WHEN m.estado_vinculacion = '%s'
+                 AND EXISTS (SELECT 1 FROM seguimiento.decision_post_corte d
+                              WHERE d.id_anonimizado = m.id_anonimizado
+                                AND d.etapa = '%s' AND d.usar)
+                THEN 'Activo' ELSE m.estado_vinculacion END AS estado_vinculacion",
+    SEG_POST_CORTE, seg_etapa())
+  sel_m <- paste(ifelse(cols == "estado_vinculacion", estado_m, paste0("m.", cols)),
+                 collapse = ", ")
 
   # De donde sale cada columna del marco para una persona de esta tabla; lo que
   # no esta aqui queda en NULL. `Activo` porque respondio: si no, la dejaria
@@ -374,13 +412,13 @@ seg_crear_marco_completo <- function() {
 
   if (!seg_incluir_no_registrados()) {
     db_exec(sprintf("CREATE OR REPLACE VIEW seguimiento.marco_completo AS
-             SELECT m.* FROM seguimiento.marco m WHERE %s", sin_borradas("m")))
+             SELECT %s FROM seguimiento.marco m WHERE %s", sel_m, sin_borradas("m")))
     return(invisible(TRUE))
   }
 
   db_exec(sprintf("
     CREATE OR REPLACE VIEW seguimiento.marco_completo AS
-    SELECT m.* FROM seguimiento.marco m
+    SELECT %s FROM seguimiento.marco m
      WHERE %s
     UNION ALL
     SELECT %s
@@ -390,7 +428,7 @@ seg_crear_marco_completo <- function() {
        AND NOT EXISTS (SELECT 1 FROM seguimiento.marco m
                         WHERE m.id_anonimizado = n.id_anonimizado)
        AND %s",
-    sin_borradas("m"),
+    sel_m, sin_borradas("m"),
     paste(sprintf("%s AS %s", expr, cols), collapse = ",\n           "),
     # Literal y no parametro: una vista no admite parametros. seg_etapa() solo
     # devuelve uno de SEG_ETAPAS, asi que no hay nada que escapar. Como la vista
@@ -488,6 +526,55 @@ seg_completar_no_registrado <- function(id, dependencia, tipo_vinculacion,
     stop("Los datos de esta persona ya estaban completos y quedaron fijos: ",
          "no se cambiaron.", call. = FALSE)
   }
+  invisible(TRUE)
+}
+
+
+# --- respuestas de vinculados despues del corte -------------------------------
+# Ver SEG_POST_CORTE. La lista de la pestana Avance: quien esta en el marco con
+# vinculacion posterior al corte y mando al menos un envio, con la decision de
+# la etapa activa si la hay. Primero las pendientes.
+seg_post_corte <- function() {
+  db_get("
+    SELECT m.id_anonimizado, m.nombre, m.dependencia, m.tipo_vinculacion,
+           m.fechainivinc, r.envio, d.usar, d.decidido_por, d.decidido_en
+      FROM seguimiento.marco m
+      JOIN (SELECT id_anonimizado, max(submission_date) AS envio
+              FROM public.respuestas_procesadas
+             GROUP BY id_anonimizado) r ON r.id_anonimizado = m.id_anonimizado
+      LEFT JOIN seguimiento.decision_post_corte d
+             ON d.id_anonimizado = m.id_anonimizado AND d.etapa = $1
+     WHERE m.estado_vinculacion = $2
+       AND NOT EXISTS (SELECT 1 FROM seguimiento.personas_borradas b
+                        WHERE b.id_anonimizado = m.id_anonimizado)
+     ORDER BY d.usar IS NOT NULL, r.envio, m.id_anonimizado",
+    params = list(seg_etapa(), SEG_POST_CORTE))
+}
+
+# `accion`: "usar", "no_usar" o "reabrir". Usar y no usar solo sobre una
+# pendiente --si dos personas deciden a la vez, gana la primera-- y reabrir la
+# devuelve a pendiente, que es no usarla mientras nadie decida otra cosa.
+seg_decidir_post_corte <- function(id, accion, usuario = NA_character_) {
+  accion <- match.arg(accion, c("usar", "no_usar", "reabrir"))
+  es <- db_get("SELECT 1 FROM seguimiento.marco
+                 WHERE id_anonimizado = $1 AND estado_vinculacion = $2",
+               params = list(id, SEG_POST_CORTE))
+  if (!nrow(es)) stop("Esta persona no está en el marco como vinculada después del corte.",
+                      call. = FALSE)
+
+  if (accion == "reabrir") {
+    db_exec("DELETE FROM seguimiento.decision_post_corte
+              WHERE id_anonimizado = $1 AND etapa = $2",
+            params = list(id, seg_etapa()))
+    return(invisible(TRUE))
+  }
+  n <- db_exec("
+    INSERT INTO seguimiento.decision_post_corte (id_anonimizado, etapa, usar, decidido_por)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (id_anonimizado, etapa) DO NOTHING",
+    params = list(id, seg_etapa(), accion == "usar", usuario))
+  if (!isTRUE(n == 1)) stop("Ya había una decisión sobre esta persona: ",
+                            "reábrala primero.", call. = FALSE)
   invisible(TRUE)
 }
 

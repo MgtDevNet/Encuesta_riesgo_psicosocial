@@ -5,6 +5,8 @@
 #
 #   Rscript scripts/cargar_marco_bateria.R "../Bateria 2026 (1).xlsx"
 #   Rscript scripts/cargar_marco_bateria.R <archivo> --conservar
+#   Rscript scripts/cargar_marco_bateria.R <archivo> --conservar --rehacer-metas
+#   Rscript scripts/cargar_marco_bateria.R <archivo> --corte=2026-05-01
 #
 # Tambien se llega aqui solo: preparar_bd.R --marco= reconoce este archivo por
 # sus encabezados en la fila 5 y delega en este script, pasandole --conservar
@@ -24,17 +26,30 @@
 #
 #   id_anonimizado     IDENTIFICACION            dependencia        DESCRIPCION_DEPENDENCIA
 #   nombre             NOMBRE                    tipo_dependencia   DESCRIPCION_UNIDAD
-#   tipo_vinculacion   TIPO_VINCULACION          nivel_empleo       GRUPO
-#   estado_vinculacion 'Activo' (ver abajo)      forma_cuestionario sorteo (ver abajo)
+#   tipo_vinculacion   TIPO_VINCULACION          nivel_empleo       GRUPO o GRUPO_CATEGORIA
+#   estado_vinculacion FECHAINIVINC (ver abajo)  forma_cuestionario el grupo (ver abajo)
 #
-# estado_vinculacion: el archivo es la nomina vigente y su columna NOVEDAD vale
-# 0 en todas las filas, asi que no hay de donde sacar bajas. Todos entran como
-# activos, que es el denominador del avance.
+# Hay dos versiones del export: la primera ("Bateria 2026") trae tres filas de
+# titulo y una vacia encima de los encabezados, y la columna GRUPO; la de
+# noviembre de 2026 ("bateria_nueva_completa", hoja marco_muestral) trae los
+# encabezados en la fila 1 y GRUPO_CATEGORIA, que es el grupo y la categoria
+# pegados con un guion ("PROFESIONAL -Profesional 6"): el nivel del empleo es
+# lo de antes del guion. La fila de encabezados se busca sola.
 #
-# forma_cuestionario: la Bateria se responde en forma A o B segun el cargo, y el
-# archivo no lo dice. Por ahora se reparte al azar con la proporcion que tienen
-# las respuestas ya cargadas (FORMA_SEMILLA lo hace reproducible). Es un dato
-# PROVISIONAL: cuando llegue el bueno, se cambia aqui y se vuelve a cargar.
+# estado_vinculacion: el archivo es la nomina vigente, sin bajas. Se espera
+# solo a quien se vinculo hasta la fecha de corte (SEG_CORTE_VINCULACION, o
+# --corte=): esos son 'Activo' y forman el denominador. Los de despues entran
+# como SEG_POST_CORTE --no elegibles-- y, si responden, se decide en Avance si
+# su respuesta se usa. Un archivo sin FECHAINIVINC deja a todos activos.
+#
+# Una persona con dos vinculaciones viene en dos filas. Queda la de inicio mas
+# reciente: el marco es una fila por persona.
+#
+# forma_cuestionario: la Bateria (MinTrabajo y Javeriana, 2010) asigna la forma
+# por el tipo de cargo. A: jefaturas, profesionales, tecnicos y tecnologos. B:
+# auxiliares, asistentes, operarios y servicios generales. El grupo de la nomina
+# (FORMA_GRUPO) los separa. Solo cuenta para los esperados A/B de Avance: quien
+# responde se califica con la forma que contesto en ODK.
 #
 # Por defecto BORRA lo simulado que cuelga del marco viejo --respuestas,
 # puntajes, citaciones, grupos, anotaciones y contactos-- porque sus ids
@@ -47,10 +62,27 @@ suppressPackageStartupMessages({
   library(DBI); library(RPostgres); library(pool); library(readxl)
 })
 
-# La fila 5 del Excel es la de encabezados: encima hay tres de titulo y una
-# vacia. Si el archivo cambia de forma, esto es lo primero que hay que revisar.
-FILAS_TITULO  <- 4
-FORMA_SEMILLA <- 2026
+# La fila de encabezados es la primera, entre las MAX_FILAS_TITULO + 1 de
+# arriba, que tiene IDENTIFICACION.
+MAX_FILAS_TITULO <- 10
+
+# Forma de la Bateria segun el grupo de la nomina. Un grupo que no este aqui
+# detiene la carga: hay que decidir su forma antes de cargarlo.
+# Los musicos (Trab. Oficial Musico, Banda Sinfonica) van en A por decision del
+# equipo: tocar en la banda exige formacion especializada. Revisable.
+FORMA_GRUPO <- c(
+  "Salario por Ptos"          = "A",  # profesores de carrera y ocasionales
+  "Asigancion por categoria"  = "A",  # profesores de catedra
+  "PROFESIONAL"               = "A",
+  "DIRECTIVO"                 = "A",
+  "TECNICO"                   = "A",
+  "Trab. Oficial Director"    = "A",  # director de la Banda Sinfonica
+  "Trab. Oficial Musico"      = "A",
+  "ASISTENCIAL"               = "B",  # auxiliares, secretarias, vigilantes
+  "Trab. Oficial Calificado1" = "B",  # aseadores, chaperos, peon, carpintero
+  "Trab. Oficial Calificado2" = "B",
+  "Trab. Oficial Calificado3" = "B"
+)
 
 # La hoja del marco es SIEMPRE la primera del libro. Antes se buscaba por
 # nombre ("Bateria 2026") y eso ataba la carga al titulo que le pusieran al
@@ -59,11 +91,13 @@ FORMA_SEMILLA <- 2026
 # se mira: solo la primera entra al marco.
 
 args <- commandArgs(trailingOnly = TRUE)
-conservar <- "--conservar" %in% args
+conservar     <- "--conservar" %in% args
+rehacer_metas <- "--rehacer-metas" %in% args
+corte_arg     <- sub("^--corte=", "", grep("^--corte=", args, value = TRUE))
 f_marco <- args[!startsWith(args, "--")][1]
 if (is.na(f_marco)) {
   stop("Uso: Rscript scripts/cargar_marco_bateria.R <archivo.xlsx> [--conservar]",
-       call. = FALSE)
+       " [--rehacer-metas] [--corte=AAAA-MM-DD]", call. = FALSE)
 }
 
 # Ubicarse en la carpeta de la app sin importar desde donde se invoque.
@@ -82,6 +116,9 @@ conexion <- db_probar()
 if (!isTRUE(conexion)) stop(conexion, call. = FALSE)
 seg_init_db(); cto_init_db()
 
+corte <- if (length(corte_arg)) as.Date(corte_arg) else SEG_CORTE_VINCULACION
+if (is.na(corte)) stop("--corte debe ser una fecha AAAA-MM-DD.", call. = FALSE)
+
 paso("Lectura")
 # `.name_repair = "minimal"` deja los encabezados crudos: si no, readxl renombra
 # los repetidos a su manera (CATEGORIA...11) y el nombre de la columna en la
@@ -94,8 +131,19 @@ message("  hoja: ", hoja,
           paste0("  (se ignoran las anexas: ",
                  paste(hojas[-1], collapse = ", "), ")"))
 
+arriba <- readxl::read_excel(normalizePath(f_marco), sheet = hoja, col_names = FALSE,
+                             n_max = MAX_FILAS_TITULO + 1, col_types = "text",
+                             .name_repair = "minimal")
+fila_enc <- which(apply(arriba, 1, function(x)
+  "IDENTIFICACION" %in% toupper(trimws(x))))[1]
+if (is.na(fila_enc)) {
+  stop("No se encuentra la columna IDENTIFICACION en las primeras ",
+       MAX_FILAS_TITULO + 1, " filas de la hoja ", hoja, ".", call. = FALSE)
+}
+message("  encabezados en la fila ", fila_enc)
+
 m <- as.data.frame(readxl::read_excel(normalizePath(f_marco), sheet = hoja,
-                                      skip = FILAS_TITULO, col_types = "text",
+                                      skip = fila_enc - 1, col_types = "text",
                                       .name_repair = "minimal"))
 
 # A minusculas con guion bajo, la columna sin encabezado toma el numero de su
@@ -108,21 +156,50 @@ names(m) <- make.unique(limpio, sep = "_")
 m <- m[!is.na(m$identificacion) & nzchar(trimws(m$identificacion)), , drop = FALSE]
 message("  ", nrow(m), " personas, ", ncol(m), " columnas del archivo")
 
-rep <- unique(m$identificacion[duplicated(m$identificacion)])
-if (length(rep)) {
-  stop("IDENTIFICACION repetida (", length(rep), "): ",
-       paste(utils::head(rep, 5), collapse = ", "), call. = FALSE)
+# Las fechas llegan como texto (col_types = "text"): un numero de serie de
+# Excel ("46136") o, si la celda era texto, la fecha escrita. Se guardan ISO.
+fecha_excel <- function(x) {
+  x <- trimws(x)
+  serie <- suppressWarnings(as.numeric(x))
+  out <- as.Date(serie, origin = "1899-12-30")
+  txt <- is.na(serie) & !is.na(x) & nzchar(x)
+  out[txt] <- as.Date(x[txt], tryFormats = c("%Y-%m-%d", "%d/%m/%Y"), optional = TRUE)
+  out
+}
+hay_fecha <- "fechainivinc" %in% names(m)
+if (hay_fecha) {
+  ini <- fecha_excel(m$fechainivinc)
+  if (anyNA(ini)) stop(sum(is.na(ini)), " filas sin FECHAINIVINC legible.", call. = FALSE)
+  m$fechainivinc <- format(ini)
+  if ("fechafinvinc" %in% names(m)) {
+    fin <- fecha_excel(m$fechafinvinc)
+    m$fechafinvinc <- ifelse(is.na(fin), NA_character_, format(fin))
+  }
 }
 
-paso("Derivadas")
-# La proporcion A/B de lo ya respondido. Si no hay respuestas, todo forma A.
-p <- db_get("SELECT forma_cuestionario AS f, count(*)::int AS n
-               FROM public.respuestas_procesadas
-              WHERE forma_cuestionario IN ('A', 'B') GROUP BY 1")
-prop_a <- if (nrow(p) && sum(p$n) > 0) sum(p$n[p$f == "A"]) / sum(p$n) else 1
-set.seed(FORMA_SEMILLA)
-forma <- sample(c("A", "B"), nrow(m), replace = TRUE, prob = c(prop_a, 1 - prop_a))
+m$identificacion <- trimws(m$identificacion)
+rep <- unique(m$identificacion[duplicated(m$identificacion)])
+if (length(rep)) {
+  if (!hay_fecha) {
+    stop("IDENTIFICACION repetida (", length(rep), "): ",
+         paste(utils::head(rep, 5), collapse = ", "), call. = FALSE)
+  }
+  # La vinculacion de inicio mas reciente. A igual fecha, la fila cuyo grupo
+  # cuadra con el tipo de vinculacion --un profesor con su grupo de
+  # profesorado, no con PROFESIONAL--, y si aun empatan, la ultima.
+  grupo <- if ("grupo" %in% names(m)) m$grupo else sub("\\s*-.*$", "", m$grupo_categoria)
+  coherente <- grepl("^Profesor", trimws(m$tipo_vinculacion)) ==
+    (trimws(grupo) %in% c("Salario por Ptos", "Asigancion por categoria"))
+  fila  <- seq_len(nrow(m))
+  queda <- fila[order(m$identificacion, m$fechainivinc, coherente, fila,
+                      decreasing = TRUE)]
+  queda <- queda[!duplicated(m$identificacion[queda])]
+  m <- m[sort(queda), , drop = FALSE]
+  message("  ", length(rep), " cedulas con dos o mas filas: queda la de inicio mas reciente")
+}
+message("  ", nrow(m), " personas")
 
+paso("Derivadas")
 texto <- function(x) { x <- trimws(x); ifelse(is.na(x) | !nzchar(x), NA_character_, x) }
 
 m$id_anonimizado     <- texto(m$identificacion)
@@ -130,17 +207,29 @@ m$nombre             <- texto(m$nombre)
 m$dependencia        <- texto(m$descripcion_dependencia)
 m$tipo_dependencia   <- texto(m$descripcion_unidad)
 m$tipo_vinculacion   <- texto(m$tipo_vinculacion)
-m$nivel_empleo       <- texto(m$grupo)
-m$estado_vinculacion <- "Activo"
-m$forma_cuestionario <- forma
+m$nivel_empleo       <- texto(if ("grupo" %in% names(m)) m$grupo
+                              else sub("\\s*-.*$", "", m$grupo_categoria))
+m$estado_vinculacion <- if (hay_fecha)
+  ifelse(as.Date(m$fechainivinc) <= corte, "Activo", SEG_POST_CORTE) else "Activo"
+m$forma_cuestionario <- unname(FORMA_GRUPO[m$nivel_empleo])
+sin_forma <- unique(m$nivel_empleo[is.na(m$forma_cuestionario)])
+if (length(sin_forma)) {
+  stop("Grupo sin forma A/B en FORMA_GRUPO: ",
+       paste(sin_forma, collapse = ", "), call. = FALSE)
+}
 
 sin_dep <- sum(is.na(m$dependencia))
 if (sin_dep) stop(sin_dep, " personas sin DESCRIPCION_DEPENDENCIA.", call. = FALSE)
 
 message("  dependencias: ", length(unique(m$dependencia)),
         " · unidades: ", length(unique(m$tipo_dependencia)))
-message(sprintf("  forma A: %s (%.0f%%) · forma B: %s",
-                sum(forma == "A"), 100 * prop_a, sum(forma == "B")))
+message(sprintf("  esperados (vinculados hasta el %s): %s · despues del corte: %s",
+                format(corte, "%d/%m/%Y"), sum(m$estado_vinculacion == "Activo"),
+                sum(m$estado_vinculacion != "Activo")))
+act <- m$estado_vinculacion == "Activo"
+message(sprintf("  esperados forma A: %s · forma B: %s",
+                sum(m$forma_cuestionario[act] == "A"),
+                sum(m$forma_cuestionario[act] == "B")))
 
 # Solo las columnas que existen en la tabla: si el archivo trae una nueva, se
 # avisa en vez de fallar a mitad de la carga.
@@ -154,7 +243,7 @@ if (length(sobran)) {
 m <- m[, intersect(names(m), cols_bd), drop = FALSE]
 
 paso(if (conservar) "Carga (se conserva lo simulado)" else "Carga (se borra lo simulado)")
-db_tx(function(con) {
+invisible(db_tx(function(con) {
   if (!conservar) {
     # Orden: lo que referencia primero. puntajes cuelga de respuestas_odk con
     # ON DELETE CASCADE, asi que se va con ella.
@@ -168,15 +257,28 @@ db_tx(function(con) {
   }
   DBI::dbExecute(con, "TRUNCATE seguimiento.marco")
   DBI::dbAppendTable(con, DBI::Id(schema = "seguimiento", table = "marco"), m)
-})
+  # Con un marco distinto las metas viejas no cuadran con nada: --rehacer-metas
+  # las borra, y abajo se siembran otra vez con los esperados de cada dependencia.
+  # Se pierde lo que se hubiera editado a mano.
+  if (rehacer_metas) {
+    n <- DBI::dbExecute(con, "DELETE FROM seguimiento.metas")
+    message("  seguimiento.metas: ", n, " filas borradas (--rehacer-metas)")
+  }
+}))
 
 # Las metas nuevas se siembran con los elegibles de cada dependencia; las que ya
 # estaban editadas no se tocan (ON CONFLICT DO NOTHING dentro de la funcion).
-seg_sembrar_metas(usuario = "carga del marco real")
+invisible(seg_sembrar_metas(usuario = "carga del marco real"))
+
+# La vista marco_completo se rehace al arrancar la app, pero si el marco trae
+# columnas nuevas la vieja ya no le corresponde: se rehace aqui tambien.
+invisible(seg_crear_marco_completo())
 
 paso("Resultado")
 print(db_get("
   SELECT (SELECT count(*) FROM seguimiento.marco)::int           AS marco,
+         (SELECT count(*) FROM seguimiento.marco
+           WHERE estado_vinculacion = 'Activo')::int             AS esperados,
          (SELECT count(DISTINCT dependencia) FROM seguimiento.marco)::int AS dependencias,
          (SELECT count(*) FROM public.respuestas_procesadas)::int      AS respuestas,
          (SELECT count(*) FROM seguimiento.citaciones)::int      AS citaciones,

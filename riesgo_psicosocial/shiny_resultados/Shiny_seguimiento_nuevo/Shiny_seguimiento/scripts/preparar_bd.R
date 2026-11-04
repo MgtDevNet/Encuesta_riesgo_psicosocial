@@ -149,7 +149,7 @@ MARCO_OPCIONALES <- c("tipo_dependencia", "nivel_jerarquico_dependencia",
 
 # Como se reconoce la nomina: sus encabezados viven en la fila 5 --encima hay
 # tres de titulo y una vacia-- y estas dos columnas no existen en el formato
-# canonico. Tiene que coincidir con FILAS_TITULO de cargar_marco_bateria.R.
+# canonico. La version de noviembre de 2026 los trae en la fila 1.
 NOMINA_FILAS_TITULO <- 4
 NOMINA_SENAL        <- c("IDENTIFICACION", "DESCRIPCION_DEPENDENCIA")
 NOMINA_SCRIPT       <- "scripts/cargar_marco_bateria.R"
@@ -224,7 +224,7 @@ marco_no_reconocido <- function(f, detalle = NULL) {
          "\n  Se esperaba una de estas dos cosas:",
          "\n    - el marco canonico: la hoja ", MARCO_HOJA, " (o un CSV) con al",
          "\n      menos las columnas ", paste(MARCO_MINIMAS, collapse = " y "),
-         "\n    - el export de nomina: encabezados en la fila ",
+         "\n    - el export de nomina: encabezados en la fila 1 o ",
          NOMINA_FILAS_TITULO + 1, " y las columnas",
          "\n      ", paste(NOMINA_SENAL, collapse = " y "))
 }
@@ -249,9 +249,14 @@ marco_formato <- function(f) {
   h <- hojas[1]
   if (all(MARCO_MINIMAS %in% marco_encabezados(f, h, 0)))
     return(list(formato = "canonico", hoja = h))
-  senal <- toupper(trimws(marco_encabezados(f, h, NOMINA_FILAS_TITULO)))
-  if (all(NOMINA_SENAL %in% senal))
-    return(list(formato = "nomina", hoja = h))
+  # La nomina de noviembre de 2026 trae los encabezados en la fila 1, sin las
+  # filas de titulo: se mira en las dos posiciones. cargar_marco_bateria.R
+  # busca la fila por su cuenta.
+  for (saltar in c(NOMINA_FILAS_TITULO, 0)) {
+    senal <- toupper(trimws(marco_encabezados(f, h, saltar)))
+    if (all(NOMINA_SENAL %in% senal))
+      return(list(formato = "nomina", hoja = h))
+  }
 
   list(formato = NA_character_, hoja = NA_character_)
 }

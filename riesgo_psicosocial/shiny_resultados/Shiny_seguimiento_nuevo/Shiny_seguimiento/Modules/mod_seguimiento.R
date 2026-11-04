@@ -145,19 +145,31 @@ mod_seguimiento_ui <- function(id) {
                              {priority: 'event'});
        });",
       ns("no_registrados"), ns("nr_completar")))),
+
+    # Quien se vinculo despues de la fecha de corte y aun asi respondio: se
+    # decide aqui si su respuesta se usa. Mismo lugar y mismo motivo que el de
+    # arriba: es depuracion del denominador.
+    uiOutput(ns("post_corte")),
+    tags$script(HTML(sprintf(
+      "$(document).on('click', '#%s [data-postcorte]', function(){
+         Shiny.setInputValue('%s', {id:     String($(this).attr('data-postcorte')),
+                                    accion: String($(this).attr('data-accion'))},
+                             {priority: 'event'});
+       });",
+      ns("post_corte"), ns("pc_accion")))),
     # Los dos recuadros de abajo nacen plegados y se redibujan solos (llegan
     # respuestas, cambia la agenda): sin recordar en R que se desplegaron, cada
     # redibujo los volveria a cerrar. El evento 'toggle' de <details> no
     # burbujea, asi que se escucha el clic en el <summary> y se manda el estado
     # que va a quedar, el contrario del actual. Mismo patron que en Resultados.
     tags$script(HTML(sprintf(
-      "$(document).on('click', '#%s details.seg-pleg > summary, #%s details.seg-pleg > summary', function(){
+      "$(document).on('click', '#%s details.seg-pleg > summary, #%s details.seg-pleg > summary, #%s details.seg-pleg > summary', function(){
          var d = $(this).closest('details');
          Shiny.setInputValue('%s',
            d.attr('data-plegable') + '|' + (d.prop('open') ? '0' : '1') + '|' + Date.now(),
            {priority: 'event'});
        });",
-      ns("citados_dia"), ns("no_registrados"), ns("plegar")))),
+      ns("citados_dia"), ns("no_registrados"), ns("post_corte"), ns("plegar")))),
     # Borrar una persona (solo administrador): pide confirmacion en el servidor.
     tags$script(HTML(sprintf(
       "$(document).on('click', '#%s [data-borrar], #%s [data-borrar]', function(){
@@ -570,6 +582,63 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
                        type = "message")
       # Rehace esta lista y el avance, el detalle y los indicadores, que leen
       # marco_completo.
+      r$respuestas <- isolate(r$respuestas) + 1
+    })
+
+    # --- vinculados despues del corte que respondieron ------------------------
+    # Ver SEG_POST_CORTE. Usar la respuesta los vuelve activos en marco_completo,
+    # asi que cuentan en esperados, avance y Resultados; no usarla los deja como
+    # no elegibles, y se puede reabrir.
+    post_corte <- reactive({
+      r$respuestas
+      tryCatch(seg_post_corte(), error = function(e) NULL)
+    })
+
+    output$post_corte <- renderUI({
+      p <- post_corte()
+      if (is.null(p) || nrow(p) == 0) return(NULL)
+      pendientes <- sum(is.na(p$usar))
+      card_plegable(
+        "post_corte", isolate(abiertos$post_corte),
+        "Personas con contrato menor a 6 meses que respondieron",
+        sprintf("· vinculadas después del %s · %s · %s usadas",
+                format(SEG_CORTE_VINCULACION, "%d/%m/%Y"),
+                if (pendientes > 0)
+                  sprintf("%s de %s por decidir", fmt_num(pendientes), fmt_num(nrow(p)))
+                else "todas decididas",
+                fmt_num(sum(p$usar %in% TRUE))),
+        div(class = "small text-muted mb-2",
+            sprintf("Están en el marco, pero su vinculación empezó después del %s ",
+                    format(SEG_CORTE_VINCULACION, "%d/%m/%Y")),
+            "(llevan menos de 6 meses), así que no hacen parte de los esperados. ",
+            "Contestaron la encuesta: ",
+            tags$b("si se usan sus resultados"), ", cuentan en todo --esperados, avance ",
+            "y Resultados-- como cualquier otra persona del marco. Mientras no se ",
+            "decida, o si se decide no usarlos, no cuentan en nada. Su respuesta queda ",
+            "guardada siempre, y una decisión se puede reabrir."),
+        tabla_post_corte(p)
+      )
+    })
+
+    observeEvent(input$pc_accion, {
+      a <- input$pc_accion
+      req(a$id, a$accion)
+      quien <- if (!is.null(r$usuario)) r$usuario$usuario else NA_character_
+      res <- tryCatch({
+        seg_decidir_post_corte(a$id, a$accion, quien)
+        NULL
+      }, error = function(e) conditionMessage(e))
+      if (!is.null(res)) {
+        showNotification(res, type = "warning")
+        return()
+      }
+      try(auth_bitacora(paste0("post_corte_", a$accion), quien, a$id,
+                        r$usuario$origen %||% NA_character_), silent = TRUE)
+      showNotification(switch(a$accion,
+        usar    = "Se usarán sus resultados: ya cuenta en el avance y en Resultados.",
+        no_usar = "No se usarán sus resultados. Se puede reabrir más adelante.",
+        reabrir = "Decisión reabierta: mientras no se decida, sus resultados no se usan."),
+        type = "message")
       r$respuestas <- isolate(r$respuestas) + 1
     })
 
@@ -1689,6 +1758,60 @@ tabla_no_registrados <- function(p, borrar = FALSE) {
         tags$thead(tags$tr(tags$th("Persona"), tags$th("Envío"), tags$th("Dependencia"),
                            tags$th("Vinculación"), tags$th("Nivel del empleo"),
                            tags$th(""))),
+        tags$tbody(filas)))
+}
+
+# --- vinculados despues del corte ---------------------------------------------
+
+tabla_post_corte <- function(p) {
+  dia <- function(x) if (is.na(x)) "—" else format(as.POSIXct(x), "%d/%m/%Y", tz = SEG_TZ)
+  # fechainivinc se guarda como texto ISO (cargar_marco_bateria.R).
+  vinc <- function(x) {
+    d <- suppressWarnings(as.Date(x))
+    if (is.na(d)) "—" else format(d, "%d/%m/%Y")
+  }
+  boton <- function(id, accion, texto, cls) {
+    tags$button(type = "button", class = paste("btn btn-sm ms-1", cls),
+                `data-postcorte` = id, `data-accion` = accion,
+                `aria-label` = paste(texto, "de", id), texto)
+  }
+  filas <- lapply(seq_len(nrow(p)), function(i) {
+    f <- p[i, ]
+    decidido <- !is.na(f$usar)
+    tags$tr(
+      tags$td(class = "col-id",
+              if (is.na(f$nombre)) f$id_anonimizado
+              else tagList(span(class = "col-nombre", f$nombre),
+                           span(class = "col-medio", f$id_anonimizado))),
+      tags$td(class = "col-dep", f$dependencia),
+      tags$td(f$tipo_vinculacion),
+      tags$td(class = "col-fecha", vinc(f$fechainivinc)),
+      tags$td(class = "col-fecha", dia(f$envio)),
+      tags$td(class = "col-accion",
+              if (!decidido)
+                tagList(boton(f$id_anonimizado, "usar", "Usar resultados",
+                              "btn-outline-primary"),
+                        boton(f$id_anonimizado, "no_usar", "No usar resultados",
+                              "btn-outline-danger"))
+              else
+                tagList(
+                  if (isTRUE(f$usar))
+                    chip_estado(list(cls = "bien", txt = "Se usan", sig = "✓"))
+                  else
+                    chip_estado(list(cls = "rechazo", txt = "No se usan", sig = "✕")),
+                  span(class = "col-medio",
+                       paste(c(if (!is.na(f$decidido_por)) f$decidido_por,
+                               dia(f$decidido_en)), collapse = " · ")),
+                  boton(f$id_anonimizado, "reabrir", "Reabrir",
+                        "btn-outline-primary"))))
+  })
+
+  div(class = "tabla-dep-caja",
+      tags$table(
+        class = "tabla-dep tabla-per tabla-dia",
+        tags$thead(tags$tr(tags$th("Persona"), tags$th("Dependencia"),
+                           tags$th("Vinculación"), tags$th("Inicio de vinculación"),
+                           tags$th("Envío"), tags$th(""))),
         tags$tbody(filas)))
 }
 

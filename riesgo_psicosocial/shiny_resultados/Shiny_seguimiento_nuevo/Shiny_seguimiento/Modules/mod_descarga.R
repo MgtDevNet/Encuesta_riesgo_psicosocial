@@ -16,6 +16,10 @@
 # Los filtros se arman sobre las columnas de la propia vista, con sus rótulos,
 # y no sobre los cruces de Resultados. Unidad y Dependencia las trae la vista
 # desde el marco (o de empleados_no_registrados para quien no está en él).
+#
+# "Usar contratos menores a 6 meses" va aparte de los demás: Sí (lo de siempre)
+# no filtra nada, y No saca a quien tiene "Sí" en la columna RES_COL_CONTRATO,
+# es decir, a quien se vinculó después de la fecha de corte.
 
 # Variables que se filtran eligiendo valores, y las que se filtran por rango.
 # Si la vista deja de traer alguna, su filtro simplemente no se dibuja.
@@ -24,6 +28,7 @@ DES_FILTROS_LISTA <- c(
   "Forma", "Sexo", "Estado civil", "Nivel académico", "Estrato",
   "Tipo de vivienda", "Personas a cargo", "Horas diarias de trabajo",
   "Tipo de salario", "Cargo", "Área")
+DES_ROT_CONTRATOS <- "Usar contratos menores a 6 meses"
 DES_FILTROS_RANGO <- c("Edad", "Años en la universidad", "Años en el cargo")
 
 # Hoja "Filtros" del Excel: que se bajo, cuando, quien y con que filtros. Fuera
@@ -37,11 +42,15 @@ des_hoja_filtros <- function(f, completo, n, total, usuario) {
     Campo = c("Descarga", "Fecha y hora", "Descargado por", "Envíos en el archivo"),
     Valor = c(if (completo) "Datos completos" else "Datos filtrados",
               cuando, quien, sprintf("%d de %d", n, total)))
-  if (completo || !length(f$lista) && !length(f$rango))
+  if (completo || f$contratos && !length(f$lista) && !length(f$rango))
     return(rbind(cab, data.frame(Campo = "Filtros", Valor = "Sin filtros")))
   rbind(cab, data.frame(
-    Campo = c("Filtros", names(f$lista), names(f$rango)),
+    Campo = c("Filtros", if (!f$contratos) DES_ROT_CONTRATOS, names(f$lista),
+              names(f$rango)),
     Valor = c("Se incluyen solo quienes cumplen TODOS:",
+              if (!f$contratos)
+                sprintf("No: se excluye a quien se vinculó después del %s",
+                        format(SEG_CORTE_VINCULACION, "%d/%m/%Y")),
               vapply(f$lista, paste, "", collapse = ", "),
               vapply(f$rango, function(x)
                 sprintf("de %s a %s (sin dato queda fuera)", x[1], x[2]), "")),
@@ -82,8 +91,10 @@ des_orden <- function(v) {
 # `lista`: valores admitidos por columna. `rango`: c(min, max) por columna; un
 # rango que cubre todos los datos no filtra, y así no saca a quien no tiene el
 # dato. Uno recortado sí lo saca: no se sabe si cae dentro.
-des_filtrar <- function(d, lista, rango) {
+des_filtrar <- function(d, lista, rango, contratos = TRUE) {
   sel <- rep(TRUE, nrow(d))
+  if (!contratos && RES_COL_CONTRATO %in% names(d))
+    sel <- sel & !d[[RES_COL_CONTRATO]] %in% "Sí"
   for (v in names(lista)) sel <- sel & des_valores(d[[v]]) %in% lista[[v]]
   for (v in names(rango)) {
     x <- suppressWarnings(as.numeric(d[[v]]))
@@ -110,7 +121,10 @@ mod_descarga_ui <- function(id) {
           span(class = "res-bloque-eyebrow", "Filtrar"),
           span(class = "res-bloque-preg",
                "Sin filtros se descarga todo. Cada filtro deja solo a quienes cumplen.")),
-      div(class = "res-filtros-rejilla", uiOutput(ns("filtros"))),
+      div(class = "res-filtros-rejilla",
+          radioButtons(ns("contratos"), DES_ROT_CONTRATOS, inline = TRUE,
+                       choices = c("Sí" = "si", "No" = "no"), selected = "si"),
+          uiOutput(ns("filtros"))),
       actionLink(ns("limpiar"), "Quitar todos los filtros", class = "res-restablecer")
     ),
 
@@ -210,17 +224,19 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
         if (length(x) == 2 && !is.null(l) && (x[1] > l[1] || x[2] < l[2]))
           rango[[rango_cols()[i]]] <- x
       }
-      list(lista = lista, rango = rango)
+      list(lista = lista, rango = rango,
+           contratos = !identical(input$contratos, "no"))
     })
 
     filtrados <- reactive({
       d <- datos()
       if (is.null(d)) return(NULL)
       f <- filtros()
-      des_filtrar(d, f$lista, f$rango)
+      des_filtrar(d, f$lista, f$rango, f$contratos)
     })
 
     observeEvent(input$limpiar, {
+      updateRadioButtons(session, "contratos", selected = "si")
       for (i in seq_along(lista_cols()))
         updateSelectizeInput(session, id_lista(i), selected = character(0))
       lim <- limites()
@@ -233,7 +249,7 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
     output$conteo <- renderUI({
       d <- datos(); f <- filtrados()
       if (is.null(d)) return(NULL)
-      n_f <- length(filtros()$lista) + length(filtros()$rango)
+      n_f <- length(filtros()$lista) + length(filtros()$rango) + !filtros()$contratos
       div(class = "res-seg-sub",
           span(class = "res-seg-n", fmt_num(nrow(f)), "de", fmt_num(nrow(d)), "envíos"),
           span(class = "sep", "·"),

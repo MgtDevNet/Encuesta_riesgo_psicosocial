@@ -467,7 +467,8 @@ RES_NIVEL_EMPLEO <- c(
   "Trab. Oficial Calificado1" = "Trabajador oficial calificado 1",
   "Trab. Oficial Calificado2" = "Trabajador oficial calificado 2",
   "Trab. Oficial Calificado3" = "Trabajador oficial calificado 3",
-  "Trab. Oficial Musico"      = "Trabajador oficial músico")
+  "Trab. Oficial Musico"      = "Trabajador oficial músico",
+  "Trab. Oficial Director"    = "Trabajador oficial director")
 
 RES_SIN_DATO <- "Sin dato"
 
@@ -1287,6 +1288,7 @@ res_desc_cruce_pct <- function(n, modo = "fila") {
 # que escribe conectar_bd.R; en una tabla escrita antes de ellas no se crea.
 RES_VISTA_EXPORTACION     <- "public.respuestas_procesadas_exportacion"
 RES_VISTA_EXPORTACION_IND <- "public.respuestas_procesadas_exportacion_ind"
+RES_COL_CONTRATO          <- "Contrato menor a 6 meses"
 
 res_crear_vista_exportacion <- function() {
   hay <- function(esquema, tabla) isTRUE(nrow(db_get(
@@ -1324,6 +1326,10 @@ res_crear_vista_exportacion <- function() {
 #
 # Con `marco` las dos llevan Unidad (DESCRIPCION_UNIDAD de la nomina, la
 # tipo_dependencia del marco) y Dependencia, que son las que filtra Descarga.
+# Tambien "Contrato menor a 6 meses": Si para quien en el marco tiene la
+# vinculacion despues de la fecha de corte (SEG_POST_CORTE, que el cargue del
+# marco pone por FECHAINIVINC), No para el resto del marco y vacio para quien no
+# esta en el. Es la fecha y nada mas: no mira lo que se decidio en Avance.
 res_crear_vista_export_una <- function(nombre, puntajes, marco = TRUE) {
   # Un nombre de columna suelto es de respuestas_procesadas, y va con su alias:
   # la vista del informe une con el marco, que tambien tiene sexo, nombre y
@@ -1365,6 +1371,11 @@ res_crear_vista_export_una <- function(nombre, puntajes, marco = TRUE) {
     if (marco) c(
       col("COALESCE(m.tipo_dependencia, n.tipo_dependencia)", "Unidad"),
       col("COALESCE(m.dependencia, n.dependencia)",           "Dependencia")),
+    if (marco) col(sprintf("CASE WHEN m.id_anonimizado IS NULL THEN NULL
+                                 WHEN m.estado_vinculacion = %s THEN 'Sí'
+                                 ELSE 'No' END",
+                           DBI::dbQuoteString(DBI::ANSI(), SEG_POST_CORTE)),
+                   RES_COL_CONTRATO),
     if (puntajes) col("(r.submission_date AT TIME ZONE 'America/Bogota')::date",
                       "Fecha de aplicación"),
     col("forma_cuestionario", "Forma"),
