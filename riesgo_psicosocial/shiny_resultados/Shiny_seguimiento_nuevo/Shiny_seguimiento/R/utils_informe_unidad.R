@@ -894,9 +894,17 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
   # y luego se mueven a su sitio.
   despues <- max(i_resumen)
   # El numero de diapositiva es un campo que trae cada diapositiva de la
-  # plantilla; a las nuevas se les copia el de la del objetivo.
+  # plantilla salvo la portada; a las nuevas se les copia el de la del
+  # objetivo. La plantilla numera desde 0 (la portada no cuenta), asi que el
+  # valor guardado es la posicion menos uno; PowerPoint lo recalcula al abrir.
   numero <- xml2::xml_find_first(iu_xml(doc, i_objetivo), "//p:sp[.//p:ph[@type='sldNum']]", IU_NS)
   if (inherits(numero, "xml_missing")) stop("La plantilla no tiene el numero de diapositiva", call. = FALSE)
+  # Las diapositivas de la plantilla que quedan despues de las dos nuevas se
+  # corren dos lugares: se ajusta su valor guardado antes de insertarlas.
+  for (k in seq.int(despues + 1, length(doc))) {
+    t <- xml2::xml_find_first(iu_xml(doc, k), "//p:sp[.//p:ph[@type='sldNum']]//a:fld/a:t", IU_NS)
+    if (!inherits(t, "xml_missing")) xml2::xml_text(t) <- as.character(k + 1)
+  }
   numerar <- function(doc, n) {
     arbol <- xml2::xml_find_first(iu_xml(doc, length(doc)), "//p:spTree", IU_NS)
     nuevo <- xml2::xml_add_child(arbol, numero)
@@ -912,7 +920,7 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
   doc <- if (pob$reservado)
     iu_cuadro(doc, iu_aviso_texto(pob), left = iu_centro_x(20.3), top = 6, width = 20.3, height = 2, tam = 40, color = IU_VERDE)
   else iu_imagen(doc, iu_grafica_ranking(pob), left = iu_centro_x(23.9), top = 2.3, width = 23.9, height = 12.3)
-  doc <- numerar(doc, despues + 1)
+  doc <- numerar(doc, despues)
   doc <- officer::move_slide(doc, index = length(doc), to = despues + 1)
 
   doc <- officer::add_slide(doc, layout = "TITLE", master = officer::layout_summary(doc)$master[1])
@@ -922,7 +930,7 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
     iu_cuadro(doc, iu_aviso_texto(pob), left = iu_centro_x(20.3), top = 6, width = 20.3, height = 2, tam = 40, color = IU_VERDE)
   else iu_imagen(doc, iu_grafica_comparar(pob, names(IU_DOMINIOS), unname(IU_DOMINIOS)),
                  left = iu_centro_x(23.3), top = 2.5, width = 23.3, height = 11.5)
-  doc <- numerar(doc, despues + 2)
+  doc <- numerar(doc, despues + 1)
   doc <- officer::move_slide(doc, index = length(doc), to = despues + 2)
 
   print(doc, target = archivo)
