@@ -17,6 +17,12 @@ respaldos/
 *.bak
 marco.xlsx
 Simulacion_respuestas_ODK.csv
+# Nómina con cédulas y nombres (marco muestral de la batería)
+/bateria_nueva_completa.xlsx
+# Presentación original del equipo; la app usa la copia de plantillas/
+/FORMATO Informe psicosocial UDEA.pptx
+# Archivos temporales que crea PowerPoint mientras una presentación está abierta
+~$*.pptx
 
 # --- Llave de la cuenta de servicio de Google (Sheets) ---
 # Se pasa por fuera, como el .Renviron; su ruta va en GOOGLE_SA_KEY.

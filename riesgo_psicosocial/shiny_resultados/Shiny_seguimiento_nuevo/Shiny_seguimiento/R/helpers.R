@@ -284,6 +284,16 @@ filtrar_personas <- function(p, grupo = "faltan") {
   p[quedan, , drop = FALSE]
 }
 
+# Redondeo de toda la vida: la mitad sube (6,25 -> 6,3), como en Excel y como
+# se calcula a mano. round() de R lleva la mitad al par (6,25 -> 6,2), y con
+# grupos de 8, 16 o 32 personas eso pasa seguido: el informe decia 6,2 % donde
+# quien revisa con la calculadora obtiene 6,3 %. El 1e-9 absorbe el error de
+# representacion binaria (100 * 2 / 32 no siempre llega exacto a 6,25).
+redondear <- function(x, dec = 1) {
+  f <- 10^dec
+  sign(x) * floor(abs(x) * f + 0.5 + 1e-9) / f
+}
+
 # Numeros en convencion colombiana: punto para los miles, coma para los
 # decimales (NTC 1000, sistema internacional). format() con big.mark = "." deja
 # el punto tambien como separador decimal, que es ambiguo y ademas avisa.

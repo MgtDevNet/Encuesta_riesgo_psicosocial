@@ -11,7 +11,9 @@
 # queda en la bitácora.
 #
 # Abajo va el informe individual en Word de una persona (R/utils_informe.R),
-# con el mismo permiso: también lleva nombre y cédula.
+# con el mismo permiso: también lleva nombre y cédula. Y debajo, el informe en
+# PowerPoint de una unidad o una dependencia (R/utils_informe_unidad.R), con el
+# mismo permiso.
 #
 # Los filtros se arman sobre las columnas de la propia vista, con sus rótulos,
 # y no sobre los cruces de Resultados. Unidad y Dependencia las trae la vista
@@ -55,6 +57,47 @@ des_hoja_filtros <- function(f, completo, n, total, usuario) {
               vapply(f$rango, function(x)
                 sprintf("de %s a %s (sin dato queda fuera)", x[1], x[2]), "")),
     row.names = NULL))
+}
+
+# Mientras se arma un archivo se muestra una ventana grande: la barrita de
+# progreso de Shiny, abajo en una esquina, casi no se ve. Se cierra sola al
+# terminar; si algo falla, se cambia por una ventana que dice que paso.
+des_en_proceso <- function(session, texto, expr) {
+  showModal(modalDialog(
+    div(class = "text-center py-3",
+        div(class = "spinner-border text-success mb-3", role = "status",
+            style = "width: 3.5rem; height: 3.5rem;"),
+        h4(texto),
+        p(class = "text-muted mb-0",
+          "Esto puede tardar unos segundos. El archivo se descargará solo.")),
+    footer = NULL, easyClose = FALSE), session = session)
+  tryCatch({
+    force(expr)
+    removeModal(session = session)
+  }, error = function(e) {
+    showModal(modalDialog(title = "No se pudo generar el archivo", conditionMessage(e),
+                          easyClose = TRUE, footer = modalButton("Cerrar")),
+              session = session)
+    stop(e)
+  })
+  invisible(TRUE)
+}
+
+# El boton de descarga de un informe solo aparece con algo elegido: descargar
+# sin elegir bajaba una pagina de error de Shiny como archivo .html. Antes, en
+# su lugar, va un boton igual que solo avisa que falta elegir.
+des_boton_informe <- function(ns, entrada, id_bajar, id_falta, rotulo) {
+  tagList(
+    conditionalPanel(condition = sprintf("input.%s", entrada), ns = ns,
+                     downloadButton(ns(id_bajar), rotulo, class = "btn-primary")),
+    conditionalPanel(condition = sprintf("!input.%s", entrada), ns = ns,
+                     actionButton(ns(id_falta), rotulo, icon = icon("download"),
+                                  class = "btn-primary")))
+}
+
+des_aviso_elegir <- function(texto) {
+  showModal(modalDialog(title = "Falta elegir", texto, easyClose = TRUE,
+                        footer = modalButton("Entendido")))
 }
 
 # Filas de la vista previa: es para reconocer los datos, no para leerlos.
@@ -143,8 +186,23 @@ mod_descarga_ui <- function(id) {
       uiOutput(ns("informe_aviso")),
       selectizeInput(ns("persona"), "Persona", choices = NULL, width = "100%",
                      options = list(placeholder = "Escriba el nombre o la cédula")),
-      downloadButton(ns("bajar_informe"), "Descargar informe (Word)",
-                     class = "btn-primary")),
+      des_boton_informe(ns, "persona", "bajar_informe", "informe_falta",
+                        "Descargar informe (Word)")),
+
+    div(
+      class = "res-bloque res-bloque-filtrar des-informe",
+      div(class = "res-bloque-cab",
+          span(class = "res-bloque-eyebrow", "Informe por unidad o dependencia"),
+          span(class = "res-bloque-preg",
+               "La presentación de resultados en PowerPoint, para una unidad o una dependencia.")),
+      radioButtons(ns("iu_nivel"), "Informe por", inline = TRUE,
+                   choices = c("Unidad" = "unidad", "Dependencia" = "dependencia"),
+                   selected = "unidad"),
+      selectizeInput(ns("iu_valor"), NULL, choices = NULL, width = "100%",
+                     options = list(placeholder = "Escriba el nombre")),
+      uiOutput(ns("iu_nota")),
+      des_boton_informe(ns, "iu_valor", "bajar_iu", "iu_falta",
+                        "Descargar informe (PowerPoint)")),
 
     h5(class = "des-previa-titulo", "Vista previa"),
     uiOutput(ns("previa_nota")),
@@ -282,14 +340,16 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
       },
       content = function(archivo) {
         u <- r$usuario$usuario
-        if (!auth_puede_usuario(u, "descargar_datos"))
-          stop("Su usuario ya no tiene permiso para descargar datos.", call. = FALSE)
         x <- if (completo) datos() else filtrados()
-        if (is.null(x)) stop("La vista de exportación no existe.", call. = FALSE)
-        escribir_excel(list(
-          Datos   = x,
-          Filtros = des_hoja_filtros(filtros(), completo, nrow(x), nrow(datos()),
-                                     r$usuario)), archivo)
+        des_en_proceso(session, "Preparando la descarga…", {
+          if (!auth_puede_usuario(u, "descargar_datos"))
+            stop("Su usuario ya no tiene permiso para descargar datos.", call. = FALSE)
+          if (is.null(x)) stop("La vista de exportación no existe.", call. = FALSE)
+          escribir_excel(list(
+            Datos   = x,
+            Filtros = des_hoja_filtros(filtros(), completo, nrow(x), nrow(datos()),
+                                       r$usuario)), archivo)
+        })
         try(auth_bitacora("descarga_datos", u,
                           sprintf("%s: %d filas", if (completo) "completo" else "filtrado",
                                   nrow(x))))
@@ -320,6 +380,9 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
                                                     p$cedula)))
     })
 
+    observeEvent(input$informe_falta,
+      des_aviso_elegir("Primero elija una persona en el buscador para descargar su informe."))
+
     output$bajar_informe <- downloadHandler(
       filename = function() {
         sprintf("informe_individual_%s_%s.docx",
@@ -327,14 +390,69 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
       },
       content = function(archivo) {
         u <- r$usuario$usuario
-        if (!auth_puede_usuario(u, "descargar_datos"))
-          stop("Su usuario ya no tiene permiso para descargar datos.", call. = FALSE)
-        if (!nzchar(input$persona %||% ""))
-          stop("Elija primero a la persona.", call. = FALSE)
-        p <- inf_datos(input$persona)
-        if (is.null(p)) stop("No hay resultados de esa persona.", call. = FALSE)
-        inf_generar(p, archivo)
+        des_en_proceso(session, "Armando el informe individual…", {
+          if (!auth_puede_usuario(u, "descargar_datos"))
+            stop("Su usuario ya no tiene permiso para descargar datos.", call. = FALSE)
+          if (!nzchar(input$persona %||% ""))
+            stop("Elija primero a la persona.", call. = FALSE)
+          p <- inf_datos(input$persona)
+          if (is.null(p)) stop("No hay resultados de esa persona.", call. = FALSE)
+          inf_generar(p, archivo)
+        })
         try(auth_bitacora("informe_individual", u, paste("cédula", input$persona)))
+      }
+    )
+
+    # --- informe por unidad o dependencia --------------------------------------
+
+    # Se rehace cuando llegan respuestas nuevas, como el avance.
+    iu_av  <- reactive({ r$respuestas; seg_avance() })
+    iu_ops <- reactive(iu_opciones(iu_av()))
+    iu_nivel <- reactive(if (identical(input$iu_nivel, "dependencia")) "dependencia" else "unidad")
+
+    # Cada opción dice cuántos encuestados tiene, para saber antes de bajar el
+    # informe si alcanza el mínimo.
+    observe({
+      op <- iu_ops()[[iu_nivel()]]
+      updateSelectizeInput(
+        session, "iu_valor", selected = character(0),
+        choices = stats::setNames(op$v, sprintf("%s · %s", op$v,
+                                                ifelse(op$x == 1, "1 encuestado",
+                                                       paste(fmt_num(op$x), "encuestados")))),
+        options = list(placeholder = sprintf("Escriba el nombre de la %s",
+                                             tolower(IU_NIVELES[[iu_nivel()]]))))
+    })
+
+    output$iu_nota <- renderUI({
+      v <- input$iu_valor
+      if (!nzchar(v %||% "")) return(NULL)
+      op <- iu_ops()[[iu_nivel()]]
+      n <- op$x[match(v, op$v)]
+      if (!is.na(n) && n < RES_MIN_N)
+        p(class = "text-muted small",
+          sprintf(paste("Tiene menos de %d encuestados: el informe sale con la cobertura",
+                        "y un aviso de confidencialidad en lugar de los resultados."), RES_MIN_N))
+    })
+
+    observeEvent(input$iu_falta,
+      des_aviso_elegir(sprintf("Primero elija la %s para descargar el informe.",
+                               tolower(IU_NIVELES[[iu_nivel()]]))))
+
+    output$bajar_iu <- downloadHandler(
+      filename = function() iu_archivo(iu_nivel(), input$iu_valor %||% ""),
+      content = function(archivo) {
+        u <- r$usuario$usuario
+        v <- input$iu_valor %||% ""
+        des_en_proceso(session, "Armando el informe en PowerPoint…", {
+          if (!auth_puede_usuario(u, "descargar_datos"))
+            stop("Su usuario ya no tiene permiso para descargar datos.", call. = FALSE)
+          if (!nzchar(v))
+            stop(sprintf("Elija primero la %s.", tolower(IU_NIVELES[[iu_nivel()]])), call. = FALSE)
+          if (!res_hay_datos())
+            stop("Todavía no hay resultados calificados.", call. = FALSE)
+          iu_generar(iu_nivel(), v, archivo, d = res_datos(), av = iu_av())
+        })
+        try(auth_bitacora("informe_unidad", u, sprintf("%s: %s", IU_NIVELES[[iu_nivel()]], v)))
       }
     )
   })

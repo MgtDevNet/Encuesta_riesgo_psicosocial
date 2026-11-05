@@ -441,6 +441,19 @@ res_hay_columna <- function(col) {
   isTRUE(as.numeric(n) > 0)
 }
 
+# TRUE si seguimiento.marco_completo tiene esa columna. El export viejo de
+# nomina no traia DESCRIPCION_TIPOE.
+res_hay_columna_marco <- function(col) {
+  n <- tryCatch(
+    db_get("SELECT count(*) AS n
+              FROM information_schema.columns
+             WHERE table_schema = 'seguimiento'
+               AND table_name   = 'marco_completo'
+               AND column_name  = $1", params = list(col))$n,
+    error = function(e) 0)
+  isTRUE(as.numeric(n) > 0)
+}
+
 # Las etiquetas de la ficha de datos generales --sexo, estrato, nivel
 # academico-- vivian aqui, copiadas de las del XLSForm. Se quitaron: las escribe
 # conectar_bd.R al cargar, `respuestas` las guarda ya traducidas y res_datos()
@@ -472,6 +485,23 @@ RES_NIVEL_EMPLEO <- c(
 
 RES_SIN_DATO <- "Sin dato"
 
+# Tipo de empleado de la nomina (DESCRIPCION_TIPOE). Quien no esta en la nomina
+# --un no registrado completado en Avance-- no lo tiene, y se deduce de su tipo
+# de vinculacion: en el marco los dos coinciden uno a uno (carrera y ocasional
+# son Profesor, catedra es Docente Catedra por Horas, los trabajadores oficiales
+# son Trabajador Oficial y todo lo demas es Personal Administrativo).
+res_tipo_empleado <- function(tipoe, vinculacion) {
+  t <- trimws(as.character(tipoe))
+  v <- trimws(as.character(vinculacion))
+  de_v <- ifelse(grepl("^Profesor de C[aá]tedra", v, ignore.case = TRUE), "Docente Catedra por Horas",
+          ifelse(grepl("^Profesor", v, ignore.case = TRUE), "Profesor",
+          ifelse(grepl("^Trabajador", v, ignore.case = TRUE), "Trabajador Oficial",
+          ifelse(is.na(v) | !nzchar(v), NA_character_, "Personal Administrativo"))))
+  out <- ifelse(is.na(t) | !nzchar(t), de_v, t)
+  out[is.na(out)] <- RES_SIN_DATO
+  out
+}
+
 # Un solo viaje a la base por sesión: 2.251 filas por 35 columnas es un pañuelo,
 # y tenerlas en memoria evita una consulta por cada cambio de cruce. Todo el
 # resto del archivo agrega sobre este data.frame.
@@ -497,12 +527,16 @@ res_datos <- function() {
   # antes de eso no tiene la columna: la pestana abre igual, con todo el mundo
   # en "Sin dato", hasta la proxima vez que se corra conectar_bd.R.
   ecivil <- if (res_hay_columna("estado_civil")) "r.estado_civil" else "NULL::text"
+  # El tipo de empleado viene de la nomina (DESCRIPCION_TIPOE). Lo usa el
+  # informe por unidad.
+  tipoe <- if (res_hay_columna_marco("descripcion_tipoe")) "m.descripcion_tipoe" else "NULL::text"
 
   d <- db_get(sprintf("
     SELECT m.dependencia,
            m.tipo_dependencia,
            m.tipo_vinculacion,
            m.nivel_empleo,
+           %s AS descripcion_tipoe,
            m.dedicacion,
            m.modalidad_trabajo AS modalidad,
            r.forma_cuestionario AS forma,
@@ -548,7 +582,7 @@ res_datos <- function() {
              ORDER BY id_anonimizado, submission_date DESC NULLS LAST, clave DESC) r
       JOIN seguimiento.marco_completo m         ON r.id_anonimizado = m.id_anonimizado
      WHERE m.estado_vinculacion = 'Activo'
-       AND %s IS TRUE", ecivil, paste(sel, collapse = ",\n           "),
+       AND %s IS TRUE", tipoe, ecivil, paste(sel, collapse = ",\n           "),
     seg_sql_acepta("r")))
 
   if (nrow(d) == 0) return(d)
@@ -579,6 +613,7 @@ res_datos <- function() {
   # Sexo, estrato y nivel academico ya no se tocan: llegan etiquetados de la
   # consulta. El bucle del final convierte en "Sin dato" lo que venga vacio.
   d$nivel_empleo <- res_etiqueta_libre(d$nivel_empleo, RES_NIVEL_EMPLEO)
+  d$tipo_empleado <- res_tipo_empleado(d$descripcion_tipoe, d$tipo_vinculacion)
 
   # Cortes de edad decenales, que es como se leen en salud ocupacional. El
   # primero y el último son abiertos porque tienen pocas personas.
@@ -640,7 +675,7 @@ res_reparto <- function(x) {
   if (n < RES_MIN_N) return(NULL)
   cn <- as.integer(table(v))
   list(n = n, conteo = cn, pct = 100 * cn / n,
-       alto = round(100 * sum(cn[RES_ALTOS]) / n, 1))
+       alto = redondear(100 * sum(cn[RES_ALTOS]) / n, 1))
 }
 
 # Una fila por categoría del cruce, para una medida. Ordenadas de mayor a menor
@@ -1142,7 +1177,7 @@ res_desc_frec <- function(v) {
                   stringsAsFactors = FALSE)
   x <- rbind(x[x$categoria != RES_SIN_DATO, , drop = FALSE],
              x[x$categoria == RES_SIN_DATO, , drop = FALSE])
-  x$pct <- if (sum(x$n) > 0) round(100 * x$n / sum(x$n), 1) else 0
+  x$pct <- if (sum(x$n) > 0) redondear(100 * x$n / sum(x$n), 1) else 0
   rownames(x) <- NULL
   x
 }
@@ -1261,7 +1296,7 @@ res_desc_cruce_pct <- function(n, modo = "fila") {
     fila    = matrix(n[, ncol(n)], nrow(n), ncol(n)),
     columna = matrix(n[nrow(n), ], nrow(n), ncol(n), byrow = TRUE),
     matrix(n[nrow(n), ncol(n)], nrow(n), ncol(n)))
-  p <- ifelse(base > 0, round(100 * n / base, 1), NA_real_)
+  p <- ifelse(base > 0, redondear(100 * n / base, 1), NA_real_)
   dimnames(p) <- dimnames(n)
   p
 }

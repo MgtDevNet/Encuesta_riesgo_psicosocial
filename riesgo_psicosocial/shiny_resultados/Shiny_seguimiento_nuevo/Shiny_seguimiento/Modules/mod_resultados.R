@@ -1199,7 +1199,7 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
           if (is.null(rk) || !nrow(rk)) return(NULL)
           niv <- do.call(rbind, lapply(rk$clave, function(k) {
             x <- ctx$rep[[k]]
-            if (is.null(x)) rep(NA_real_, 5) else round(x$pct, 1)
+            if (is.null(x)) rep(NA_real_, 5) else redondear(x$pct, 1)
           }))
           colnames(niv) <- c("sin_riesgo", "bajo", "medio", "alto", "muy_alto")
           x <- cbind(

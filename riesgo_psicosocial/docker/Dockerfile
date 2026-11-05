@@ -23,6 +23,12 @@ RUN R --slave -e '\
     ), repos="https://cloud.r-project.org")\
     '
 
+# Letra Carlito (igual a Calibri) para las gráficas del informe en PowerPoint,
+# que se dibujan en el servidor como imagen. Va despues de los paquetes de R para no
+# volver a instalarlos al reconstruir.
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-crosextra-carlito \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copia tu aplicación Shiny a la carpeta /app
 # La ruta relativa es desde el contexto de build (la carpeta docker/)
 # Así que .. sube un nivel hasta riesgo_psicosocial
