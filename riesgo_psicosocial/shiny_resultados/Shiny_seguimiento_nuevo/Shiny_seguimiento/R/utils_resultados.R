@@ -521,7 +521,16 @@ res_datos <- function() {
     por_forma("b"),
     sprintf("r.clas_dim_ex_%s AS ex_%s", names(RES_EXTRA), names(RES_EXTRA)),
     "r.clas_total_extra  AS tot_extra",
-    "r.clas_total_estres AS tot_estres")
+    "r.clas_total_estres AS tot_estres",
+    # Puntajes transformados de los totales y los dominios, para el nivel de
+    # riesgo del grupo en el informe por unidad (el promedio de cada forma se
+    # ubica en su baremo). Los escribe conectar_bd.R desde el 2026-10-22.
+    if (res_hay_columna("pt_total_extra")) c(
+      sprintf("r.pt_total_intra_%s AS pt_tot_intra_%s", c("a", "b"), c("a", "b")),
+      sprintf("r.pt_dom_%s_%s AS pt_dom_%s_%s", rep(c("a", "b"), each = length(RES_DOMS)),
+              names(RES_DOMS), names(RES_DOMS), rep(c("a", "b"), each = length(RES_DOMS))),
+      "r.pt_total_extra  AS pt_tot_extra",
+      "r.pt_total_estres AS pt_tot_estres"))
 
   # estado_civil volvio al formulario el 2026-10-20. Una `respuestas` escrita
   # antes de eso no tiene la columna: la pestana abre igual, con todo el mundo

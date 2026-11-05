@@ -172,13 +172,18 @@ server <- function(input, output, session) {
   # el mismo. La consulta cuesta poco (una tabla de miles de filas, una vez por
   # minuto y por sesion) y si la tabla no esta --base a medio preparar-- no pasa
   # nada: devuelve NULL y se vuelve a mirar al minuto siguiente.
-  # Tambien cuenta a los empleados fuera del marco ya completados: completarlos
-  # desde otra sesion cambia el avance, aunque las respuestas sean las mismas.
+  # Tambien cuenta a los empleados fuera del marco ya completados y las
+  # decisiones de usar o no los resultados de los contratos menores a 6 meses:
+  # tomarlas desde otra sesion cambia el avance (y el informe por unidad),
+  # aunque las respuestas sean las mismas.
   SEG_FIRMA_RESPUESTAS <- "
     SELECT (SELECT count(*) FROM public.respuestas_procesadas) AS n,
            (SELECT max(xmin::text::bigint) FROM public.respuestas_procesadas) AS x,
            (SELECT count(*) FROM seguimiento.empleados_no_registrados
-             WHERE completado_en IS NOT NULL) AS nr"
+             WHERE completado_en IS NOT NULL) AS nr,
+           (SELECT count(*) || '-' || count(*) FILTER (WHERE usar) || '-' ||
+                   COALESCE(max(decidido_en)::text, '')
+              FROM seguimiento.decision_post_corte) AS pc"
   respuestas_firma <- reactivePoll(
     60 * 1000, session,
     checkFunc = function() tryCatch(

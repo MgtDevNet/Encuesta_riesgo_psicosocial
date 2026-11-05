@@ -450,7 +450,9 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
             stop(sprintf("Elija primero la %s.", tolower(IU_NIVELES[[iu_nivel()]])), call. = FALSE)
           if (!res_hay_datos())
             stop("Todavía no hay resultados calificados.", call. = FALSE)
-          iu_generar(iu_nivel(), v, archivo, d = res_datos(), av = iu_av())
+          # El avance se vuelve a consultar: una decision tomada en otra sesion
+          # (completar a alguien, usar un contrato menor a 6 meses) ya cuenta.
+          iu_generar(iu_nivel(), v, archivo, d = res_datos(), av = seg_avance())
         })
         try(auth_bitacora("informe_unidad", u, sprintf("%s: %s", IU_NIVELES[[iu_nivel()]], v)))
       }
