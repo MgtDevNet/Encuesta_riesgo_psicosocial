@@ -86,11 +86,13 @@ des_en_proceso <- function(session, texto, expr) {
 # El boton de descarga de un informe solo aparece con algo elegido: descargar
 # sin elegir bajaba una pagina de error de Shiny como archivo .html. Antes, en
 # su lugar, va un boton igual que solo avisa que falta elegir.
-des_boton_informe <- function(ns, entrada, id_bajar, id_falta, rotulo) {
+# `listo` es la condicion (en JavaScript, sobre los input del modulo) de que
+# ya hay algo elegido.
+des_boton_informe <- function(ns, listo, id_bajar, id_falta, rotulo) {
   tagList(
-    conditionalPanel(condition = sprintf("input.%s", entrada), ns = ns,
+    conditionalPanel(condition = listo, ns = ns,
                      downloadButton(ns(id_bajar), rotulo, class = "btn-primary")),
-    conditionalPanel(condition = sprintf("!input.%s", entrada), ns = ns,
+    conditionalPanel(condition = sprintf("!(%s)", listo), ns = ns,
                      actionButton(ns(id_falta), rotulo, icon = icon("download"),
                                   class = "btn-primary")))
 }
@@ -186,7 +188,7 @@ mod_descarga_ui <- function(id) {
       uiOutput(ns("informe_aviso")),
       selectizeInput(ns("persona"), "Persona", choices = NULL, width = "100%",
                      options = list(placeholder = "Escriba el nombre o la cédula")),
-      des_boton_informe(ns, "persona", "bajar_informe", "informe_falta",
+      des_boton_informe(ns, "input.persona", "bajar_informe", "informe_falta",
                         "Descargar informe (Word)")),
 
     div(
@@ -196,13 +198,17 @@ mod_descarga_ui <- function(id) {
           span(class = "res-bloque-preg",
                "La presentación de resultados en PowerPoint, para una unidad o una dependencia.")),
       radioButtons(ns("iu_nivel"), "Informe por", inline = TRUE,
-                   choices = c("Unidad" = "unidad", "Dependencia" = "dependencia"),
+                   choices = c("Unidad" = "unidad", "Dependencia" = "dependencia",
+                               "Toda la universidad" = "universidad"),
                    selected = "unidad"),
-      selectizeInput(ns("iu_valor"), NULL, choices = NULL, width = "100%",
-                     options = list(placeholder = "Escriba el nombre")),
-      uiOutput(ns("iu_nota")),
-      des_boton_informe(ns, "iu_valor", "bajar_iu", "iu_falta",
-                        "Descargar informe (PowerPoint)")),
+      # Para toda la universidad no hay nada que elegir.
+      conditionalPanel(
+        condition = "input.iu_nivel !== 'universidad'", ns = ns,
+        selectizeInput(ns("iu_valor"), NULL, choices = NULL, width = "100%",
+                       options = list(placeholder = "Escriba el nombre")),
+        uiOutput(ns("iu_nota"))),
+      des_boton_informe(ns, "input.iu_valor || input.iu_nivel === 'universidad'",
+                        "bajar_iu", "iu_falta", "Descargar informe (PowerPoint)")),
 
     h5(class = "des-previa-titulo", "Vista previa"),
     uiOutput(ns("previa_nota")),
@@ -408,11 +414,13 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
     # Se rehace cuando llegan respuestas nuevas, como el avance.
     iu_av  <- reactive({ r$respuestas; seg_avance() })
     iu_ops <- reactive(iu_opciones(iu_av()))
-    iu_nivel <- reactive(if (identical(input$iu_nivel, "dependencia")) "dependencia" else "unidad")
+    iu_nivel <- reactive(if (isTRUE(input$iu_nivel %in% c("dependencia", "universidad")))
+                           input$iu_nivel else "unidad")
 
     # Cada opción dice cuántos encuestados tiene, para saber antes de bajar el
     # informe si alcanza el mínimo.
     observe({
+      if (identical(iu_nivel(), "universidad")) return()
       op <- iu_ops()[[iu_nivel()]]
       updateSelectizeInput(
         session, "iu_valor", selected = character(0),
@@ -425,7 +433,7 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
 
     output$iu_nota <- renderUI({
       v <- input$iu_valor
-      if (!nzchar(v %||% "")) return(NULL)
+      if (identical(iu_nivel(), "universidad") || !nzchar(v %||% "")) return(NULL)
       op <- iu_ops()[[iu_nivel()]]
       n <- op$x[match(v, op$v)]
       if (!is.na(n) && n < RES_MIN_N)
@@ -442,7 +450,7 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
       filename = function() iu_archivo(iu_nivel(), input$iu_valor %||% ""),
       content = function(archivo) {
         u <- r$usuario$usuario
-        v <- input$iu_valor %||% ""
+        v <- if (identical(iu_nivel(), "universidad")) IU_NOMBRE_UDEA else input$iu_valor %||% ""
         des_en_proceso(session, "Armando el informe en PowerPoint…", {
           if (!auth_puede_usuario(u, "descargar_datos"))
             stop("Su usuario ya no tiene permiso para descargar datos.", call. = FALSE)

@@ -89,8 +89,11 @@ IU_NS <- c(a = "http://schemas.openxmlformats.org/drawingml/2006/main",
            p = "http://schemas.openxmlformats.org/presentationml/2006/main")
 IU_EMU <- 914400
 
-IU_NIVELES <- c(unidad = "Unidad", dependencia = "Dependencia")
+IU_NIVELES <- c(unidad = "Unidad", dependencia = "Dependencia", universidad = "Universidad")
 IU_COLUMNA <- c(unidad = "tipo_dependencia", dependencia = "dependencia")
+
+# El informe de toda la universidad: todos los encuestados y todo el avance.
+IU_NOMBRE_UDEA <- "Universidad de Antioquia"
 
 # Columnas por tipo de empleado de la nomina, en este orden. Solo se ponen las
 # que tienen gente en la unidad.
@@ -290,13 +293,39 @@ IU_MESES <- c("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
 # --- datos -------------------------------------------------------------------
 
 # Las unidades y dependencias que se pueden elegir, con sus encuestados.
+# Las dependencias, cada una con su unidad. Hay nombres de dependencia que se
+# repiten en varias unidades ("Departamento de Formacion Academica" esta en
+# cuatro escuelas): son dependencias distintas y en el informe van por
+# separado, con la unidad en el nombre ("... · Escuela de Idiomas"). Las demas
+# se llaman como siempre. Se cuentan persona por persona, con las reglas de
+# seg_avance() (esperados = activos; encuestados = activos con algun envio).
+# (La pestana Avance y Resultados todavia las juntan por nombre.)
+iu_dependencias_lista <- function() {
+  a <- db_get(sprintf("
+    SELECT m.tipo_dependencia AS unidad, m.dependencia,
+           count(*)::int AS esperados,
+           count(DISTINCT r.id_anonimizado)::int AS encuestados
+      FROM seguimiento.marco_completo m
+      LEFT JOIN %s r ON m.id_anonimizado = r.id_anonimizado
+     WHERE m.estado_vinculacion = 'Activo'
+       AND m.dependencia IS NOT NULL AND m.dependencia <> ''
+     GROUP BY 1, 2", SEG_RESPONDIO))
+  repetida <- a$dependencia %in% a$dependencia[duplicated(a$dependencia)]
+  a$etiqueta <- ifelse(repetida, paste(a$dependencia, a$unidad, sep = " \u00b7 "), a$dependencia)
+  a
+}
+
+# Las unidades se cuentan persona por persona (iu_unidades_avance()): sumar el
+# avance por dependencia las mezcla cuando un nombre de dependencia se repite.
 iu_opciones <- function(av = seg_avance()) {
-  por <- function(col) {
-    a <- stats::aggregate(av$encuestados, list(v = av[[col]]), sum)
+  ordenar <- function(a) {
     a <- a[!is.na(a$v) & nzchar(a$v), , drop = FALSE]
     a[order(to_key(a$v)), , drop = FALSE]
   }
-  list(unidad = por("tipo_dependencia"), dependencia = por("dependencia"))
+  u <- iu_unidades_avance()
+  dl <- iu_dependencias_lista()
+  list(unidad = ordenar(data.frame(v = u$dependencia, x = u$encuestados, stringsAsFactors = FALSE)),
+       dependencia = ordenar(data.frame(v = dl$etiqueta, x = dl$encuestados, stringsAsFactors = FALSE)))
 }
 
 # Todo lo que necesita el informe de una unidad o dependencia. `d` son las
@@ -305,16 +334,38 @@ iu_opciones <- function(av = seg_avance()) {
 # veces la base.
 iu_poblacion <- function(nivel, valor, d = res_datos(), av = seg_avance()) {
   if (!nivel %in% names(IU_NIVELES)) stop("Nivel desconocido: ", nivel, call. = FALSE)
-  col <- IU_COLUMNA[[nivel]]
-  a <- av[!is.na(av[[col]]) & av[[col]] == valor, , drop = FALSE]
-  if (!nrow(a)) stop("No hay ", tolower(IU_NIVELES[[nivel]]), " llamada ", valor, call. = FALSE)
-  du <- if (nrow(d)) d[!is.na(d[[col]]) & d[[col]] == valor, , drop = FALSE] else d
-  # Las efectivas (aceptaron el consentimiento) salen de la misma funcion que
-  # los indicadores de Avance, para que el informe diga lo mismo.
-  ind <- seg_totales_indicadores(sort(unique(a$dependencia)))$total
+  if (identical(nivel, "universidad")) {
+    valor <- IU_NOMBRE_UDEA
+    a <- av
+    du <- d
+  } else {
+    # La unidad se pide a seg_avance() ya filtrada: sin filtro, el avance va por
+    # NOMBRE de dependencia, y hay nombres que se repiten en varias unidades
+    # ("Departamento de Formacion Academica" esta en cuatro escuelas): cada
+    # uno quedaba entero en una sola unidad y la cobertura de las otras salia
+    # mal. Filtrando por la unidad se cuentan solo sus personas.
+    if (identical(nivel, "unidad")) {
+      a <- seg_avance(tipos = valor)
+      du <- if (nrow(d)) d[!is.na(d$tipo_dependencia) & d$tipo_dependencia == valor, , drop = FALSE] else d
+    } else {
+      # La dependencia va con su unidad (ver iu_dependencias_lista()): `valor`
+      # es su nombre, o "nombre · unidad" si el nombre se repite.
+      dl <- iu_dependencias_lista()
+      fila <- dl[dl$etiqueta == valor, , drop = FALSE]
+      if (nrow(fila) != 1) stop("No hay dependencia llamada ", valor, call. = FALSE)
+      a <- seg_avance(tipos = fila$unidad)
+      a <- a[!is.na(a$dependencia) & a$dependencia == fila$dependencia, , drop = FALSE]
+      du <- if (nrow(d)) d[d$dependencia %in% fila$dependencia &
+                           d$tipo_dependencia %in% fila$unidad, , drop = FALSE] else d
+    }
+    if (!nrow(a)) stop("No hay ", tolower(IU_NIVELES[[nivel]]), " llamada ", valor, call. = FALSE)
+  }
+  # Encuestas efectivas: las personas cuyo ultimo envio acepto el
+  # consentimiento, que son justo las que trae res_datos() (la misma regla que
+  # Avance, seg_sql_efectiva()).
   list(nivel = nivel, valor = valor, d = d, du = du, av = a,
        esperados = sum(a$elegibles), encuestados = sum(a$encuestados),
-       efectivas = ind$efectivas,
+       efectivas = nrow(du),
        reservado = nrow(du) < RES_MIN_N)
 }
 
@@ -342,14 +393,16 @@ iu_fecha <- function(x = Sys.Date()) {
 }
 
 # Las columnas de los resumenes por dominio: la universidad, la unidad, sus
-# dos formas y los tipos de empleado que tiene.
+# dos formas y los tipos de empleado que tiene. En el informe de toda la
+# universidad no va la columna de la unidad: repetiria la de la UDEA.
 iu_columnas <- function(pob) {
   du <- pob$du
-  cols <- list(
-    list(titulo = "Resultado UDEA",                        d = pob$d),
-    list(titulo = paste("Resultado", IU_NIVELES[[pob$nivel]]), d = du),
-    list(titulo = "Forma A", d = du[du$forma %in% "A", , drop = FALSE], forma = "A"),
-    list(titulo = "Forma B", d = du[du$forma %in% "B", , drop = FALSE], forma = "B"))
+  cols <- c(
+    list(list(titulo = "Resultado UDEA", d = pob$d)),
+    if (!identical(pob$nivel, "universidad"))
+      list(list(titulo = paste("Resultado", IU_NIVELES[[pob$nivel]]), d = du)),
+    list(list(titulo = "Forma A", d = du[du$forma %in% "A", , drop = FALSE], forma = "A"),
+         list(titulo = "Forma B", d = du[du$forma %in% "B", , drop = FALSE], forma = "B")))
   tipos <- intersect(names(IU_TIPOS), du$tipo_empleado)
   c(cols, lapply(tipos, function(t)
     list(titulo = IU_TIPOS[[t]], d = du[du$tipo_empleado %in% t, , drop = FALSE])))
@@ -738,7 +791,9 @@ iu_grafica_socio <- function(f, base = 28) {
 # Las dependencias de la unidad (de iu_dependencias()): la barra clara son los
 # esperados y la verde, encima, los encuestados; asi se ve cuanto respondio cada
 # una.
-iu_grafica_dependencias <- function(f, base = if (nrow(f) > 10) 18 else 26) {
+iu_grafica_dependencias <- function(f, base = if (nrow(f) > 10) 18 else 26,
+                                    nota = sprintf("Barra verde: encuestados; barra clara: esperados. Total: %s de %s.",
+                                                   fmt_num(sum(f$encuestados)), fmt_num(sum(f$esperados)))) {
   rot <- iu_envolver(f$dependencia, 34)
   df <- data.frame(cat = factor(rot, levels = rev(rot)), esp = f$esperados, enc = f$encuestados,
                    etq = sprintf("%s de %s", fmt_num(f$encuestados), fmt_num(f$esperados)))
@@ -750,8 +805,26 @@ iu_grafica_dependencias <- function(f, base = if (nrow(f) > 10) 18 else 26) {
     ggplot2::scale_y_continuous(limits = c(0, max(c(df$esp, 1)) * 1.4), expand = c(0, 0)) +
     ggplot2::coord_flip(clip = "off") +
     iu_tema(base) +
-    ggplot2::labs(caption = sprintf("Barra verde: encuestados; barra clara: esperados. Total: %s de %s.",
-                                    fmt_num(sum(f$encuestados)), fmt_num(sum(f$esperados))))
+    ggplot2::labs(caption = nota)
+}
+
+# Las unidades de toda la universidad con sus esperados y encuestados, de la
+# mas grande a la mas chica. Se cuentan persona por persona con las reglas de
+# seg_avance() (esperados = activos; encuestados = activos con algun envio) y
+# no sumando su resultado: ese va por nombre de dependencia, y hay nombres
+# repetidos en varias unidades. Mismas columnas que iu_dependencias(), para
+# dibujarlas con iu_grafica_dependencias().
+iu_unidades_avance <- function() {
+  a <- db_get(sprintf("
+    SELECT m.tipo_dependencia AS dependencia,
+           count(*)::int AS esperados,
+           count(DISTINCT r.id_anonimizado)::int AS encuestados
+      FROM seguimiento.marco_completo m
+      LEFT JOIN %s r ON m.id_anonimizado = r.id_anonimizado
+     WHERE m.estado_vinculacion = 'Activo'
+       AND m.tipo_dependencia IS NOT NULL AND m.tipo_dependencia <> ''
+     GROUP BY 1", SEG_RESPONDIO))
+  a[order(-a$esperados, to_key(a$dependencia)), , drop = FALSE]
 }
 
 
@@ -805,6 +878,66 @@ iu_tabla_niveles <- function(du, ancho) {
 }
 
 
+# Niveles de riesgo de cada unidad de la universidad, para el informe de toda
+# la universidad: filas = unidades (las que se le pasen, en ese orden),
+# columnas = las medidas de la tabla de niveles. Cada celda es el nivel
+# GENERAL de la unidad (formas A y B combinadas), con el semaforo.
+IU_UNIDADES_POR_DIAPOSITIVA <- 14L
+IU_NIVEL_COLUMNAS <- c(
+  dom_liderazgo_relaciones_sociales_trabajo = "Dominio\nLiderazgo y relaciones sociales",
+  dom_control_trabajo                       = "Dominio\nControl sobre el trabajo",
+  dom_demandas_trabajo                      = "Dominio\nDemandas del trabajo",
+  dom_recompensas                           = "Dominio\nRecompensas",
+  tot_intra                                 = "Total\nintralaboral",
+  tot_extra                                 = "Extralaboral",
+  tot_estres                                = "Estrés")
+stopifnot(identical(names(IU_NIVEL_COLUMNAS), names(IU_NIVEL_FILAS)))
+
+iu_tabla_unidades <- function(d, unidades, ancho) {
+  claves <- names(IU_NIVEL_COLUMNAS)
+  niv <- lapply(unidades, function(u) {
+    du <- d[!is.na(d$tipo_dependencia) & d$tipo_dependencia == u, , drop = FALSE]
+    lapply(claves, function(k) iu_nivel_grupo(du, k)$general)
+  })
+  n_unidad <- vapply(unidades, function(u) sum(d$tipo_dependencia %in% u), 0L)
+  t <- data.frame(unidad = unidades, n = fmt_num(n_unidad), stringsAsFactors = FALSE)
+  for (j in seq_along(claves))
+    t[[claves[j]]] <- vapply(niv, function(x) iu_nivel_txt(x[[j]]$n, x[[j]]$nivel), "")
+  ft <- flextable::flextable(t)
+  ft <- do.call(flextable::set_header_labels,
+                c(list(ft, unidad = "Unidad", n = "Personas"), as.list(IU_NIVEL_COLUMNAS)))
+  ft <- flextable::font(ft, fontname = IU_LETRA, part = "all")
+  ft <- flextable::fontsize(ft, size = 20, part = "body")
+  ft <- flextable::fontsize(ft, size = 16, part = "header")
+  ft <- flextable::bold(ft, part = "header")
+  ft <- flextable::bg(ft, bg = paste0("#", IU_VERDE), part = "header")
+  ft <- flextable::color(ft, color = "white", part = "header")
+  ft <- flextable::bg(ft, j = 1:2, bg = paste0("#", IU_VERDE_SUAVE), part = "body")
+  ft <- flextable::color(ft, j = 1:2, color = paste0("#", IU_TEXTO), part = "body")
+  for (i in seq_along(unidades)) for (j in seq_along(claves)) {
+    x <- niv[[i]][[j]]
+    col <- j + 2
+    if (x$n < RES_MIN_N || is.na(x$nivel)) {
+      ft <- flextable::color(ft, i = i, j = col, color = "#7F7F7F", part = "body")
+    } else {
+      ft <- flextable::bg(ft, i = i, j = col, bg = paste0("#", IU_NIVEL_COLOR[x$nivel]), part = "body")
+      ft <- flextable::bold(ft, i = i, j = col, part = "body")
+      ft <- flextable::color(ft, i = i, j = col, part = "body",
+                             color = if (x$nivel == 5) "white" else "black")
+    }
+  }
+  ft <- flextable::align(ft, j = seq(2, ncol(t)), align = "center", part = "all")
+  ft <- flextable::valign(ft, valign = "center", part = "all")
+  blanco <- officer::fp_border(color = "white", width = 2)
+  ft <- flextable::border_remove(ft)
+  ft <- flextable::border_inner(ft, border = blanco, part = "all")
+  ft <- flextable::padding(ft, padding.top = 7, padding.bottom = 7, padding.left = 8,
+                           padding.right = 8, part = "all")
+  flextable::width(ft, j = seq_len(ncol(t)),
+                   width = ancho * c(0.27, 0.07, rep(0.66 / length(claves), length(claves))))
+}
+
+
 # --- informe -----------------------------------------------------------------
 
 # Escribe en `archivo` el informe de la unidad o dependencia `valor`.
@@ -813,6 +946,8 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
                        d = res_datos(), av = seg_avance(), hoy = Sys.Date()) {
   if (!file.exists(plantilla)) stop("No se encuentra la plantilla ", plantilla, call. = FALSE)
   pob <- iu_poblacion(nivel, valor, d, av)
+  valor <- pob$valor
+  universidad <- identical(nivel, "universidad")
   nombre_nivel <- tolower(IU_NIVELES[[nivel]])
   # Antes de clasificar a la unidad: los cortes tienen que reproducir la
   # calificacion de cada persona de la universidad.
@@ -939,6 +1074,15 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
     doc <- officer::on_slide(doc, i)
     if (pob$reservado) next
     if (identical(s$var, "dependencia")) {
+      # En el de toda la universidad lo que interesa es la unidad, y son
+      # demasiadas para media diapositiva: van en una diapositiva propia.
+      if (universidad) {
+        iu_parrafo_texto(p, "% Representación por unidad")
+        doc <- iu_cuadro(doc, "Ver la representación por unidad en la diapositiva siguiente.",
+                         left = centro - ancho / 2, top = arriba, width = ancho, height = 1,
+                         tam = 28, color = IU_VERDE)
+        next
+      }
       # El informe de una dependencia no tiene a quien repartir.
       doc <- if (identical(nivel, "dependencia"))
         iu_cuadro(doc, "Informe de una sola dependencia.", left = centro - ancho / 2,
@@ -1073,10 +1217,14 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
   }
 
   # --- diapositivas nuevas ---
-  # Tres: la tabla de niveles de la unidad, justo despues de la de
-  # intralaboral, extralaboral y estres, y las dos graficas despues del ultimo
-  # resumen. Se agregan al final, cuando ya no se va a tocar ninguna otra por
-  # su numero, y luego se mueven a su sitio.
+  # Cada una dice despues de cual diapositiva de la plantilla va y como se
+  # llena. Se agregan al final, cuando ya no se va a tocar ninguna otra por su
+  # numero, y luego se mueven a su sitio:
+  #   la tabla de niveles               despues de intralaboral, extralaboral y estres
+  #   niveles por unidad (universidad)  ahi mismo, a continuacion
+  #   representacion por unidad (id.)   despues de la de antiguedad
+  #   las dos graficas de riesgo        despues del ultimo resumen; en el de la
+  #                                     universidad solo la primera
   despues <- max(i_resumen)
   # El numero de diapositiva es un campo que trae cada diapositiva de la
   # plantilla salvo la portada; a las nuevas se les copia el de la del
@@ -1084,13 +1232,6 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
   # valor guardado es la posicion menos uno; PowerPoint lo recalcula al abrir.
   numero <- xml2::xml_find_first(iu_xml(doc, i_objetivo), "//p:sp[.//p:ph[@type='sldNum']]", IU_NS)
   if (inherits(numero, "xml_missing")) stop("La plantilla no tiene el numero de diapositiva", call. = FALSE)
-  # Las de la plantilla se corren un lugar por la de niveles y dos mas por las
-  # graficas: se ajusta su valor guardado antes de insertar.
-  for (k in seq.int(i_tres + 1, length(doc))) {
-    t <- xml2::xml_find_first(iu_xml(doc, k), "//p:sp[.//p:ph[@type='sldNum']]//a:fld/a:t", IU_NS)
-    final <- k + 1 + 2 * (k > despues)
-    if (!inherits(t, "xml_missing")) xml2::xml_text(t) <- as.character(final - 1)
-  }
   numerar <- function(doc, n) {
     arbol <- xml2::xml_find_first(iu_xml(doc, length(doc)), "//p:spTree", IU_NS)
     nuevo <- xml2::xml_add_child(arbol, numero)
@@ -1113,12 +1254,12 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
   aviso <- function(doc)
     iu_cuadro(doc, iu_aviso_texto(pob), left = iu_centro_x(20.3), top = 6, width = 20.3, height = 2,
               tam = 40, color = IU_VERDE)
+  nueva <- function(tras, llenar) list(tras = tras, llenar = llenar)
 
-  # Niveles de riesgo de la unidad: queda en la posicion i_tres + 1.
-  doc <- officer::add_slide(doc, layout = "TITLE", master = officer::layout_summary(doc)$master[1])
-  doc <- titulo(doc, sprintf("Nivel de riesgo de la %s", nombre_nivel))
-  doc <- pie(doc)
-  if (pob$reservado) doc <- aviso(doc) else {
+  nuevas <- list(nueva(i_tres, function(doc) {
+    doc <- titulo(doc, sprintf("Nivel de riesgo de la %s", nombre_nivel))
+    doc <- pie(doc)
+    if (pob$reservado) return(aviso(doc))
     ancho <- 20
     doc <- officer::ph_with(doc, iu_tabla_niveles(pob$du, ancho),
                             location = officer::ph_location(left = iu_centro_x(ancho), top = 2.9))
@@ -1126,7 +1267,7 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
     n_forma <- c(A = sum(pob$du$forma %in% "A"), B = sum(pob$du$forma %in% "B"))
     sin_forma <- names(n_forma)[n_forma == 0]
     pocas <- names(n_forma)[n_forma > 0 & n_forma < RES_MIN_N]
-    doc <- iu_cuadro(doc, c(
+    iu_cuadro(doc, c(
       paste("Nivel según el promedio del puntaje transformado de las personas de cada forma,",
             "ubicado en el baremo de esa forma."),
       paste("General: los niveles de la Forma A y de la Forma B, combinados según el número de",
@@ -1138,35 +1279,94 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
         sprintf("\u2014: en esta %s nadie respondió la Forma %s.", nombre_nivel, sin_forma[1])),
       left = iu_centro_x(ancho), top = 9.1, width = ancho, height = 1.4, tam = 18,
       color = "595959", alinear = "left")
+  }))
+
+  if (universidad) {
+    # Niveles por unidad, en orden alfabetico y repartidas en varias diapositivas.
+    unidades <- iu_unidades_avance()$dependencia
+    unidades <- unidades[order(to_key(unidades))]
+    trozos <- split(unidades, ceiling(seq_along(unidades) / IU_UNIDADES_POR_DIAPOSITIVA))
+    nuevas <- c(nuevas, lapply(seq_along(trozos), function(k) nueva(i_tres, function(doc) {
+      doc <- titulo(doc, if (length(trozos) > 1)
+        sprintf("Nivel de riesgo por unidad (%d de %d)", k, length(trozos))
+        else "Nivel de riesgo por unidad")
+      doc <- pie(doc)
+      ancho <- 24.4
+      doc <- officer::ph_with(doc, iu_tabla_unidades(pob$d, trozos[[k]], ancho),
+                              location = officer::ph_location(left = iu_centro_x(ancho), top = 2.5))
+      iu_cuadro(doc, c(
+        paste("Nivel general de cada unidad: el promedio del puntaje transformado de cada forma,",
+              "ubicado en su baremo, y las dos formas combinadas según el número de personas."),
+        sprintf(paste("< %d: la unidad tiene menos de %d personas con resultados; su nivel no se",
+                      "muestra. \u2014: nadie de la unidad ha respondido."), RES_MIN_N, RES_MIN_N)),
+        left = iu_centro_x(ancho), top = 2.5 + 1.0 + 0.6 * length(trozos[[k]]) + 0.3,
+        width = ancho, height = 1, tam = 16, color = "595959", alinear = "left")
+    })))
+    # Representacion por unidad: esperados y encuestados, en las dos mitades.
+    nuevas <- c(nuevas, list(nueva(i_socio[length(i_socio)], function(doc) {
+      doc <- titulo(doc, "Representación por unidad")
+      doc <- pie(doc)
+      fu <- iu_unidades_avance()
+      mitad <- ceiling(nrow(fu) / 2)
+      partes <- list(fu[seq_len(mitad), , drop = FALSE], fu[-seq_len(mitad), , drop = FALSE])
+      ancho <- IU_SOCIO_GRAFICA_ANCHO
+      for (k in 1:2) {
+        f <- partes[[k]]
+        if (!nrow(f)) next
+        nota <- if (k == 2 || !nrow(partes[[2]]))
+          sprintf("Barra verde: encuestados; barra clara: esperados. Total: %s de %s.",
+                  fmt_num(sum(fu$encuestados)), fmt_num(sum(fu$esperados))) else ""
+        doc <- iu_imagen(doc, iu_grafica_dependencias(f, base = 18, nota = nota),
+                         left = IU_ANCHO_DIAPOSITIVA * (2 * k - 1) / 4 - ancho / 2, top = 2.6,
+                         width = ancho, height = iu_alto_socio(max(nrow(partes[[1]]), nrow(partes[[2]]))))
+      }
+      doc
+    })))
   }
-  doc <- numerar(doc, i_tres)
-  doc <- officer::move_slide(doc, index = length(doc), to = i_tres + 1)
 
-  # Las dos graficas, despues del ultimo resumen (que ya se corrio un lugar).
-  doc <- officer::add_slide(doc, layout = "TITLE", master = officer::layout_summary(doc)$master[1])
-  doc <- titulo(doc, "Dimensiones ordenadas por riesgo")
-  doc <- pie(doc)
-  doc <- if (pob$reservado) aviso(doc)
-  else iu_imagen(doc, iu_grafica_ranking(pob), left = iu_centro_x(23.9), top = 2.3, width = 23.9, height = 12.3)
-  doc <- numerar(doc, despues + 1)
-  doc <- officer::move_slide(doc, index = length(doc), to = despues + 2)
+  nuevas <- c(nuevas, list(nueva(despues, function(doc) {
+    doc <- titulo(doc, "Dimensiones ordenadas por riesgo")
+    doc <- pie(doc)
+    if (pob$reservado) aviso(doc)
+    else iu_imagen(doc, iu_grafica_ranking(pob), left = iu_centro_x(23.9), top = 2.3, width = 23.9, height = 12.3)
+  })))
+  # La comparacion con la universidad no va en el informe de la universidad.
+  if (!universidad) nuevas <- c(nuevas, list(nueva(despues, function(doc) {
+    doc <- titulo(doc, sprintf("%s frente a la universidad, por dominio",
+                               if (nivel == "unidad") "La unidad" else "La dependencia"))
+    doc <- pie(doc)
+    if (pob$reservado) aviso(doc)
+    else iu_imagen(doc, iu_grafica_comparar(pob, names(IU_DOMINIOS), unname(IU_DOMINIOS)),
+                   left = iu_centro_x(23.3), top = 2.5, width = 23.3, height = 11.5)
+  })))
 
-  doc <- officer::add_slide(doc, layout = "TITLE", master = officer::layout_summary(doc)$master[1])
-  doc <- titulo(doc, sprintf("%s frente a la universidad, por dominio",
-                             if (nivel == "unidad") "La unidad" else "La dependencia"))
-  doc <- pie(doc)
-  doc <- if (pob$reservado) aviso(doc)
-  else iu_imagen(doc, iu_grafica_comparar(pob, names(IU_DOMINIOS), unname(IU_DOMINIOS)),
-                 left = iu_centro_x(23.3), top = 2.5, width = 23.3, height = 11.5)
-  doc <- numerar(doc, despues + 2)
-  doc <- officer::move_slide(doc, index = length(doc), to = despues + 3)
+  # Se insertan en orden de sitio (las de un mismo sitio, en el orden de la
+  # lista). La nueva j queda en la posicion tras + j, y una de la plantilla en
+  # su posicion mas las nuevas que van antes que ella: con eso se ajusta el
+  # numero guardado de cada una antes de insertar.
+  nuevas <- nuevas[order(vapply(nuevas, `[[`, 0, "tras"), seq_along(nuevas))]
+  tras <- vapply(nuevas, `[[`, 0, "tras")
+  for (k in seq.int(2, length(doc))) {
+    t <- xml2::xml_find_first(iu_xml(doc, k), "//p:sp[.//p:ph[@type='sldNum']]//a:fld/a:t", IU_NS)
+    if (!inherits(t, "xml_missing")) xml2::xml_text(t) <- as.character(k + sum(tras < k) - 1)
+  }
+  for (j in seq_along(nuevas)) {
+    pos <- tras[j] + j
+    doc <- officer::add_slide(doc, layout = "TITLE", master = officer::layout_summary(doc)$master[1])
+    doc <- nuevas[[j]]$llenar(doc)
+    doc <- numerar(doc, pos - 1)
+    doc <- officer::move_slide(doc, index = length(doc), to = pos)
+  }
 
   print(doc, target = archivo)
   invisible(archivo)
 }
 
-# Nombre de archivo: informe_unidad_facultad_de_medicina_20261105.pptx
+# Nombre de archivo: informe_unidad_facultad_de_medicina_20261105.pptx (y
+# informe_universidad_de_antioquia_20261105.pptx para toda la universidad)
 iu_archivo <- function(nivel, valor, hoy = Sys.Date()) {
+  if (identical(nivel, "universidad"))
+    return(sprintf("informe_universidad_de_antioquia_%s.pptx", format(hoy, "%Y%m%d")))
   slug <- gsub("_+", "_", gsub("[^a-z0-9]+", "_", to_key(valor)))
   slug <- substr(gsub("^_|_$", "", slug), 1, 50)
   sprintf("informe_%s_%s_%s.pptx", nivel, slug, format(hoy, "%Y%m%d"))
