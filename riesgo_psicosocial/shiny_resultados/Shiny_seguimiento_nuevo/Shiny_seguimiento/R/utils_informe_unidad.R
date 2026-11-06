@@ -73,13 +73,16 @@ IU_ALTO_CABECERA    <- 0.85
 # Ancho de la diapositiva, en pulgadas.
 IU_ANCHO_DIAPOSITIVA <- 24120475 / 914400
 
-# Diapositivas sociodemograficas: dos tablas por diapositiva, cada una centrada
-# en su mitad, con su titulo encima a la misma altura. En pulgadas. (Primero
-# fueron tablas; ahora son graficas de barras.)
-IU_SOCIO_TITULO_ARRIBA <- 1.35
-IU_SOCIO_TITULO_ALTO   <- 1.4
-IU_SOCIO_TITULO_ANCHO  <- 12.0
+# Ancho de las graficas de la diapositiva de representacion por unidad (informe
+# de toda la universidad), una en cada mitad. En pulgadas.
 IU_SOCIO_GRAFICA_ANCHO <- 11.5
+
+# Las graficas sociodemograficas van en dos diapositivas de cuatro, en una
+# rejilla de 2 x 2: arriba del titulo de cada fila y el alto maximo de cada
+# grafica, en pulgadas.
+IU_GRILLA_TITULO   <- c(1.15, 7.85)
+IU_GRILLA_ALTO     <- 5.25
+IU_GRILLA_ANCHO    <- 10.8
 
 # La tabla de cobertura, ya con cinco columnas: posicion y ancho en pulgadas.
 IU_IZQ_COBERTURA   <- 2.0
@@ -107,17 +110,25 @@ IU_TIPOS <- c("Profesor"                  = "Profesores",
 # de la nomina, porque el formulario ya no guarda el contrato. La de area se
 # cambia por la dependencia de la nomina: el area de ODK es texto libre y cada
 # quien la escribe a su manera (30 escrituras para 38 personas en el piloto).
+# `titulo` es el texto de la plantilla (para encontrar sus diapositivas) y
+# `nuevo` el que se escribe sobre cada grafica.
 IU_SOCIO <- list(
-  list(titulo = "% de personas por Edad",                         var = "edad"),
-  list(titulo = "% de personas por Estado Civil",                 var = "estado_civil"),
-  list(titulo = "% de personas por nivel de escolaridad",         var = "nivel_academico"),
-  list(titulo = "% de personas por estrato socioeconómico",       var = "estrato"),
-  list(titulo = "% de personas por tipo de vivienda",             var = "vivienda"),
+  list(titulo = "% de personas por Edad",                         var = "edad",
+       nuevo  = "% de personas por edad"),
+  list(titulo = "% de personas por Estado Civil",                 var = "estado_civil",
+       nuevo  = "% de personas por estado civil"),
+  list(titulo = "% de personas por nivel de escolaridad",         var = "nivel_academico",
+       nuevo  = "% de personas por nivel de escolaridad"),
+  list(titulo = "% de personas por estrato socioeconómico",       var = "estrato",
+       nuevo  = "% de personas por estrato socioeconómico"),
+  list(titulo = "% de personas por tipo de vivienda",             var = "vivienda",
+       nuevo  = "% de personas por tipo de vivienda"),
   list(titulo = "% de personas por tipo de contrato",             var = "tipo_vinculacion",
        nuevo  = "% de personas por tipo de vinculación"),
-  list(titulo = "% de personas por Antigüedad en la institución", var = "antiguedad"),
+  list(titulo = "% de personas por Antigüedad en la institución", var = "antiguedad",
+       nuevo  = "% de personas por antigüedad en la institución"),
   list(titulo = "% Representación por área",                      var = "dependencia",
-       nuevo  = "% Representación por dependencia"))
+       nuevo  = "% representación por dependencia"))
 
 # Una grafica sociodemografica no pasa de este numero de barras: las categorias
 # mas chicas se juntan en "Otras".
@@ -383,6 +394,16 @@ iu_rojo <- function(x) !is.na(x) & redondear(x, 1) >= IU_UMBRAL
 iu_pct <- function(x) {
   if (length(x) != 1 || is.na(x)) return("—")
   paste0(formatC(redondear(x, 1), format = "f", digits = 1, decimal.mark = ","), "%")
+}
+
+# "la Facultad de Medicina", "el Instituto de Filosofia": el articulo segun la
+# primera palabra del nombre. La universidad es "la universidad".
+IU_MASCULINOS <- c("instituto", "departamento", "centro", "programa", "grupo", "laboratorio",
+                   "museo", "parque", "sistema", "comite", "consejo", "posgrado")
+iu_con_articulo <- function(nivel, valor) {
+  if (identical(nivel, "universidad")) return("la universidad")
+  primera <- to_key(sub("\\s.*$", "", trimws(valor)))
+  paste(if (primera %in% IU_MASCULINOS) "el" else "la", valor)
 }
 
 iu_personas <- function(n) sprintf("%s %s", fmt_num(n), if (n == 1) "persona" else "personas")
@@ -690,20 +711,50 @@ iu_grafica_comparar <- function(pob, claves, rotulos, base = 30) {
   df$grupo  <- factor(df$grupo, levels = c(udea, nombre))
   df$etq    <- ifelse(is.na(df$pct), sprintf("< %d personas", RES_MIN_N),
                       vapply(df$pct, iu_pct, ""))
+  # La barra que llega al 30 % va en rojo, sea de la unidad o de la UDEA; la
+  # leyenda sigue diciendo cual es cual por el color de las demas.
+  df$relleno <- ifelse(iu_rojo(df$pct), "rojo", as.character(df$grupo))
   tope <- max(c(df$pct, IU_UMBRAL), na.rm = TRUE)
-  ggplot2::ggplot(df, ggplot2::aes(x = medida, y = ifelse(is.na(pct), 0, pct), fill = grupo)) +
+  ggplot2::ggplot(df, ggplot2::aes(x = medida, y = ifelse(is.na(pct), 0, pct), fill = relleno,
+                                   group = grupo)) +
     iu_linea_umbral(length(claves), base) +
     ggplot2::geom_col(position = ggplot2::position_dodge(width = 0.85), width = 0.8) +
     ggplot2::geom_text(ggplot2::aes(label = etq), position = ggplot2::position_dodge(width = 0.85),
                        hjust = -0.12, size = base / ggplot2::.pt * 0.85,
                        family = iu_letra_grafica(), color = paste0("#", IU_TEXTO)) +
-    ggplot2::scale_fill_manual(values = stats::setNames(paste0("#", c(IU_GRIS, IU_VERDE)),
-                                                        c(udea, nombre)),
+    ggplot2::scale_fill_manual(values = stats::setNames(paste0("#", c(IU_GRIS, IU_VERDE, IU_ROJO)),
+                                                        c(udea, nombre, "rojo")),
                                breaks = c(nombre, udea)) +
     ggplot2::scale_y_continuous(limits = c(0, tope * 1.22), expand = c(0, 0)) +
     ggplot2::coord_flip(clip = "off") +
     iu_tema(base) +
-    ggplot2::labs(caption = "Porcentaje de personas en riesgo alto o muy alto, sobre los encuestados de cada grupo.")
+    ggplot2::labs(caption = sprintf(paste("Porcentaje de personas en riesgo alto o muy alto, sobre los",
+                                          "encuestados de cada grupo. En rojo: %d %% o más."), IU_UMBRAL))
+}
+
+# Los dominios, el extralaboral y el estres de un solo grupo (el informe de
+# toda la universidad, que no tiene contra quien compararse): verde, y rojo
+# los que llegan al 30 %.
+iu_grafica_dominios <- function(pob, base = 30) {
+  rot <- unname(IU_DOMINIOS)
+  df <- data.frame(medida = factor(rot, levels = rev(rot)),
+                   pct = vapply(names(IU_DOMINIOS), function(k) iu_alto(pob$du, k), 0),
+                   stringsAsFactors = FALSE)
+  df$etq   <- ifelse(is.na(df$pct), sprintf("< %d personas", RES_MIN_N), vapply(df$pct, iu_pct, ""))
+  df$color <- ifelse(iu_rojo(df$pct), "rojo", "verde")
+  ggplot2::ggplot(df, ggplot2::aes(x = medida, y = ifelse(is.na(pct), 0, pct), fill = color)) +
+    iu_linea_umbral(nrow(df), base) +
+    ggplot2::geom_col(width = 0.7) +
+    ggplot2::geom_text(ggplot2::aes(label = etq), hjust = -0.12, size = base / ggplot2::.pt * 0.85,
+                       family = iu_letra_grafica(), color = paste0("#", IU_TEXTO)) +
+    ggplot2::scale_fill_manual(values = c(rojo = paste0("#", IU_ROJO), verde = paste0("#", IU_VERDE)),
+                               guide = "none") +
+    ggplot2::scale_y_continuous(limits = c(0, max(c(df$pct, IU_UMBRAL), na.rm = TRUE) * 1.22),
+                                expand = c(0, 0)) +
+    ggplot2::coord_flip(clip = "off") +
+    iu_tema(base) +
+    ggplot2::labs(caption = sprintf(paste("Porcentaje de personas en riesgo alto o muy alto, sobre los",
+                                          "encuestados. En rojo: %d %% o más."), IU_UMBRAL))
 }
 
 # Todas las dimensiones, de mayor a menor riesgo en la unidad. En rojo las que
@@ -762,6 +813,8 @@ iu_grafica_cobertura <- function(pob, base = 26) {
 # categoria, con las personas y el % al final de cada barra. Cada barra ocupa
 # lo mismo en todas las graficas, y ninguna pasa del borde de la diapositiva.
 iu_alto_socio <- function(n) min(10.8, 1.4 + 1.0 * n)
+iu_alto_grilla <- function(n) min(IU_GRILLA_ALTO, 0.9 + 0.55 * n)
+iu_letra_grilla <- function(n) if (n > 14) 12 else if (n > 9) 14 else if (n > 6) 17 else 20
 
 # Parte un rotulo largo en renglones para el eje de la grafica.
 iu_envolver <- function(x, ancho) {
@@ -794,7 +847,8 @@ iu_grafica_socio <- function(f, base = 28) {
 iu_grafica_dependencias <- function(f, base = if (nrow(f) > 10) 18 else 26,
                                     nota = sprintf("Barra verde: encuestados; barra clara: esperados. Total: %s de %s.",
                                                    fmt_num(sum(f$encuestados)), fmt_num(sum(f$esperados)))) {
-  rot <- iu_envolver(f$dependencia, 34)
+  # Con muchas barras no hay alto para dos renglones por nombre.
+  rot <- iu_envolver(f$dependencia, if (nrow(f) > 10) 70 else 34)
   df <- data.frame(cat = factor(rot, levels = rev(rot)), esp = f$esperados, enc = f$encuestados,
                    etq = sprintf("%s de %s", fmt_num(f$encuestados), fmt_num(f$esperados)))
   ggplot2::ggplot(df, ggplot2::aes(x = cat)) +
@@ -954,6 +1008,11 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
   iu_verificar_baremos(pob$d)
 
   doc <- officer::read_pptx(plantilla)
+  # La plantilla trae las graficas sociodemograficas en cuatro diapositivas de
+  # dos; el informe las pone en dos de cuatro. Se quitan la tercera y la cuarta
+  # antes de buscar las demas, que asi quedan en su numero definitivo.
+  quitar <- unique(vapply(IU_SOCIO[5:8], function(s) iu_buscar(doc, s$titulo), 0L))
+  for (k in sort(quitar, decreasing = TRUE)) doc <- officer::remove_slide(doc, index = k)
 
   # Todas se buscan antes de tocar nada: si la plantilla cambio, el error sale
   # aqui y no a medio informe.
@@ -961,7 +1020,7 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
   i_objetivo <- iu_buscar(doc, "LA FACULTAD……….")
   i_cierre   <- iu_buscar(doc, "Realizada por")
   i_cober    <- iu_buscar(doc, "# Trabajadores pactados para medición")
-  i_socio    <- vapply(IU_SOCIO, function(s) iu_buscar(doc, s$titulo), 0L)
+  i_socio    <- c(iu_buscar(doc, IU_SOCIO[[1]]$titulo), iu_buscar(doc, IU_SOCIO[[3]]$titulo))
   i_tres     <- iu_buscar(doc, IU_TRES[[1]]$viejo)
   i_resumen  <- vapply(IU_RESUMENES, function(t) iu_buscar(doc, t), 0L)
 
@@ -1054,56 +1113,47 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
                    width = 11.8, height = 0.6, tam = 20, color = "595959", alinear = "right")
 
   # --- sociodemograficas ---
-  for (s in IU_SOCIO) {
-    i <- iu_buscar(doc, s$titulo)
+  # Dos diapositivas con cuatro graficas cada una, en rejilla de 2 x 2: cada
+  # una centrada en su cuarto, con su titulo encima. Los titulos de la
+  # plantilla se quitan.
+  for (h in 1:2) {
+    i <- i_socio[h]
     x <- iu_xml(doc, i)
-    p <- iu_parrafo(x, s$titulo)
-    if (!is.null(s$nuevo)) iu_parrafo_texto(p, s$nuevo)
-    # El titulo pasa a su mitad de la diapositiva, centrado, y la grafica va
-    # centrada debajo: la plantilla trae cada titulo a una altura y un ancho
-    # distintos.
-    fig <- iu_figura(p)
-    caja <- iu_caja(fig)
-    mitad <- if (caja$left + caja$width / 2 < IU_ANCHO_DIAPOSITIVA / 2) 1 else 3
-    centro <- IU_ANCHO_DIAPOSITIVA * mitad / 4
-    iu_mover(fig, centro - IU_SOCIO_TITULO_ANCHO / 2, IU_SOCIO_TITULO_ARRIBA,
-             IU_SOCIO_TITULO_ANCHO, IU_SOCIO_TITULO_ALTO)
-    for (ppr in xml2::xml_find_all(fig, ".//a:p/a:pPr", IU_NS)) xml2::xml_set_attr(ppr, "algn", "ctr")
-    ancho <- IU_SOCIO_GRAFICA_ANCHO
-    arriba <- IU_SOCIO_TITULO_ARRIBA + IU_SOCIO_TITULO_ALTO + 0.3
+    for (s in IU_SOCIO[c(2 * h - 1, 2 * h)]) xml2::xml_remove(iu_figura(iu_parrafo(x, s$titulo)))
     doc <- officer::on_slide(doc, i)
-    if (pob$reservado) next
-    if (identical(s$var, "dependencia")) {
-      # En el de toda la universidad lo que interesa es la unidad, y son
-      # demasiadas para media diapositiva: van en una diapositiva propia.
-      if (universidad) {
-        iu_parrafo_texto(p, "% Representación por unidad")
-        doc <- iu_cuadro(doc, "Ver la representación por unidad en la diapositiva siguiente.",
-                         left = centro - ancho / 2, top = arriba, width = ancho, height = 1,
-                         tam = 28, color = IU_VERDE)
-        next
-      }
-      # El informe de una dependencia no tiene a quien repartir.
-      doc <- if (identical(nivel, "dependencia"))
-        iu_cuadro(doc, "Informe de una sola dependencia.", left = centro - ancho / 2,
-                  top = arriba, width = ancho, height = 1,
-                  tam = 28, color = IU_VERDE)
-      else {
-        fd <- iu_dependencias(pob)
-        iu_imagen(doc, iu_grafica_dependencias(fd), left = centro - ancho / 2, top = arriba,
-                  width = ancho, height = iu_alto_socio(nrow(fd)))
-      }
+    if (pob$reservado) {
+      doc <- iu_cuadro(doc, iu_aviso_texto(pob), left = iu_centro_x(20.3), top = 6, width = 20.3,
+                       height = 2, tam = 40, color = IU_VERDE)
       next
     }
-    f <- iu_frecuencias(pob$du, s$var)
-    doc <- iu_imagen(doc, iu_grafica_socio(f), left = centro - ancho / 2, top = arriba,
-                     width = ancho, height = iu_alto_socio(nrow(f)))
-  }
-  if (pob$reservado) {
-    for (i in unique(i_socio)) {
-      doc <- officer::on_slide(doc, i)
-      doc <- iu_cuadro(doc, iu_aviso_texto(pob), left = iu_centro_x(20.3), top = 6, width = 20.3, height = 2,
-                       tam = 40, color = IU_VERDE)
+    for (q in 1:4) {
+      s <- IU_SOCIO[[4 * (h - 1) + q]]
+      centro <- IU_ANCHO_DIAPOSITIVA * (2 * ((q - 1) %% 2) + 1) / 4
+      arriba <- IU_GRILLA_TITULO[(q - 1) %/% 2 + 1]
+      izq <- centro - IU_GRILLA_ANCHO / 2
+      abajo <- arriba + 0.8
+      titulo_q <- s$nuevo
+      if (identical(s$var, "dependencia") && universidad) titulo_q <- "% representación por unidad"
+      doc <- iu_cuadro(doc, titulo_q, left = centro - 6, top = arriba, width = 12, height = 0.75,
+                       tam = 30, color = IU_VERDE, letra = IU_LETRA_TITULO)
+      if (identical(s$var, "dependencia")) {
+        # Universidad: la representacion por unidad va en su propia diapositiva
+        # (son demasiadas). Dependencia: no tiene a quien repartir.
+        doc <- if (universidad || identical(nivel, "dependencia"))
+          iu_cuadro(doc, if (universidad) "Ver la representación por unidad en la diapositiva siguiente."
+                         else "Informe de una sola dependencia.",
+                    left = izq, top = abajo, width = IU_GRILLA_ANCHO, height = 1,
+                    tam = 24, color = IU_VERDE)
+        else {
+          fd <- iu_dependencias(pob)
+          iu_imagen(doc, iu_grafica_dependencias(fd, base = iu_letra_grilla(nrow(fd))),
+                    left = izq, top = abajo, width = IU_GRILLA_ANCHO, height = iu_alto_grilla(nrow(fd)))
+        }
+        next
+      }
+      f <- iu_frecuencias(pob$du, s$var)
+      doc <- iu_imagen(doc, iu_grafica_socio(f, base = iu_letra_grilla(nrow(f))),
+                       left = izq, top = abajo, width = IU_GRILLA_ANCHO, height = iu_alto_grilla(nrow(f)))
     }
   }
 
@@ -1142,6 +1192,9 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
     }
   }
   doc <- officer::on_slide(doc, i_tres)
+  doc <- iu_cuadro(doc, sprintf("¿Cómo está %s en términos generales?", iu_con_articulo(nivel, valor)),
+                   left = iu_centro_x(19.2), top = 1.0, width = 19.2, height = 2.4, tam = 48,
+                   color = IU_VERDE, letra = IU_LETRA_TITULO)
   if (pob$reservado)
     doc <- iu_cuadro(doc, iu_aviso_texto(pob), left = iu_centro_x(20.3), top = 8.8, width = 20.3,
                      height = 2, tam = 40, color = IU_VERDE)
@@ -1224,7 +1277,7 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
   #   niveles por unidad (universidad)  ahi mismo, a continuacion
   #   representacion por unidad (id.)   despues de la de antiguedad
   #   las dos graficas de riesgo        despues del ultimo resumen; en el de la
-  #                                     universidad solo la primera
+  #                                     universidad la segunda es solo de ella
   despues <- max(i_resumen)
   # El numero de diapositiva es un campo que trae cada diapositiva de la
   # plantilla salvo la portada; a las nuevas se les copia el de la del
@@ -1330,7 +1383,15 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
     if (pob$reservado) aviso(doc)
     else iu_imagen(doc, iu_grafica_ranking(pob), left = iu_centro_x(23.9), top = 2.3, width = 23.9, height = 12.3)
   })))
-  # La comparacion con la universidad no va en el informe de la universidad.
+  # La comparacion con la universidad no va en el informe de la universidad: en
+  # su lugar, los mismos dominios solo para la universidad.
+  if (universidad) nuevas <- c(nuevas, list(nueva(despues, function(doc) {
+    doc <- titulo(doc, "Riesgo alto o muy alto por dominio")
+    doc <- pie(doc)
+    if (pob$reservado) aviso(doc)
+    else iu_imagen(doc, iu_grafica_dominios(pob), left = iu_centro_x(23.3), top = 2.5,
+                   width = 23.3, height = 11.5)
+  })))
   if (!universidad) nuevas <- c(nuevas, list(nueva(despues, function(doc) {
     doc <- titulo(doc, sprintf("%s frente a la universidad, por dominio",
                                if (nivel == "unidad") "La unidad" else "La dependencia"))
