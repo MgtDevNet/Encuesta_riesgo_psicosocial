@@ -14,11 +14,10 @@
 #   cuatro sociodemograficas     una grafica de barras por variable: personas y
 #                                % sobre los encuestados; la de area pasa a ser
 #                                por dependencia de la nomina (con esperados)
-#   intra / extra / estres       el nivel de riesgo de la unidad (general, y
-#                                el de cada forma)
+#   intra / extra / estres       el nivel de riesgo de la unidad en cada forma
 #   nivel de riesgo (nueva)      despues de la anterior: tabla de niveles por
 #                                dominio, total intralaboral, extralaboral y
-#                                estres; Forma A, Forma B y General
+#                                estres; Forma A y Forma B
 #   cinco resumenes por dominio  % en riesgo alto o muy alto por columna: UDEA,
 #                                la unidad, sus formas A y B y sus tipos de
 #                                empleado; en rojo desde el 30 %
@@ -181,9 +180,9 @@ IU_RESUMENES <- c("Resumen resultados Dominio: Demanda del trabajo",
 # Los tres niveles de la diapositiva de intralaboral, extralaboral y estres:
 # el texto que trae la plantilla, el que lo reemplaza y la medida.
 IU_TRES <- list(
-  list(viejo = "Nivel de riesgo intralaboral",    nuevo = "Riesgo intralaboral: ", clave = "tot_intra"),
-  list(viejo = "Nivel de riesgo extralaboral",    nuevo = "Riesgo extralaboral: ", clave = "tot_extra"),
-  list(viejo = "Escala de valoración del estrés", nuevo = "Estrés: ",              clave = "tot_estres"))
+  list(viejo = "Nivel de riesgo intralaboral",    nuevo = "Riesgo intralaboral",  clave = "tot_intra"),
+  list(viejo = "Nivel de riesgo extralaboral",    nuevo = "Riesgo extralaboral",  clave = "tot_extra"),
+  list(viejo = "Escala de valoración del estrés", nuevo = "Estrés",               clave = "tot_estres"))
 
 # Los dominios para la grafica unidad contra universidad.
 IU_DOMINIOS <- c(dom_demandas_trabajo                      = "Demandas del trabajo",
@@ -200,9 +199,9 @@ IU_DOMINIOS <- c(dom_demandas_trabajo                      = "Demandas del traba
 # (redondeado a un decimal, como los puntajes individuales).
 #
 # A y B no se promedian entre si: cada una tiene su baremo, y un 25 en la A no
-# dice lo mismo que un 25 en la B. El nivel GENERAL combina los niveles de las
-# dos formas, cada uno pesado por cuantas personas tiene su forma (decision del
-# equipo, 2026-11-05). Con una sola forma, el general es el de esa forma.
+# dice lo mismo que un 25 en la B. Tampoco hay nivel general: el manual no trae
+# una regla para combinar las dos formas, asi que el grupo se informa siempre
+# por forma (decision del equipo, 2026-11-06).
 #
 # Los cortes son los de conectar_bd.R, que es donde se califica a cada persona.
 # iu_verificar_baremos() comprueba en cada informe que, aplicados al puntaje
@@ -248,11 +247,10 @@ iu_col_pt <- function(clave, forma) {
 # baremo deja cada corte dentro del nivel de abajo.
 iu_nivel_de <- function(x, cortes) 1L + sum(x > cortes)
 
-# Nivel de una medida en un grupo: por forma, y el general.
+# Nivel de una medida en un grupo, por forma.
 #   $A, $B    list(n, promedio, nivel)  (nivel NA si no hay personas)
-#   $general  list(n, nivel)
 iu_nivel_grupo <- function(d, clave) {
-  por <- lapply(c(A = "A", B = "B"), function(f) {
+  lapply(c(A = "A", B = "B"), function(f) {
     col <- iu_col_pt(clave, f)
     x <- if (col %in% names(d)) d[[col]][d$forma %in% f] else numeric(0)
     x <- as.numeric(x[!is.na(x)])
@@ -260,12 +258,6 @@ iu_nivel_grupo <- function(d, clave) {
     prom <- redondear(mean(x), 1)
     list(n = length(x), promedio = prom, nivel = iu_nivel_de(prom, IU_BAREMOS[[clave]][[f]]))
   })
-  ns <- c(por$A$n, por$B$n)
-  nv <- c(por$A$nivel, por$B$nivel)
-  ok <- ns > 0
-  general <- if (!any(ok)) NA_integer_ else
-    as.integer(redondear(sum(nv[ok] * ns[ok]) / sum(ns[ok]), 0))
-  c(por, list(general = list(n = sum(ns), nivel = general)))
 }
 
 # Lo que se escribe de un nivel: la palabra, "< 7" si el grupo no llega al
@@ -679,7 +671,7 @@ iu_tema <- function(base) {
                    legend.position = "top", legend.title = ggplot2::element_blank(),
                    legend.text = ggplot2::element_text(size = base),
                    plot.caption = ggplot2::element_text(color = "grey35", hjust = 0,
-                                                        size = base * 0.75),
+                                                        size = base * 0.9),
                    plot.caption.position = "plot")
 }
 
@@ -711,50 +703,41 @@ iu_grafica_comparar <- function(pob, claves, rotulos, base = 30) {
   df$grupo  <- factor(df$grupo, levels = c(udea, nombre))
   df$etq    <- ifelse(is.na(df$pct), sprintf("< %d personas", RES_MIN_N),
                       vapply(df$pct, iu_pct, ""))
-  # La barra que llega al 30 % va en rojo, sea de la unidad o de la UDEA; la
-  # leyenda sigue diciendo cual es cual por el color de las demas.
-  df$relleno <- ifelse(iu_rojo(df$pct), "rojo", as.character(df$grupo))
   tope <- max(c(df$pct, IU_UMBRAL), na.rm = TRUE)
-  ggplot2::ggplot(df, ggplot2::aes(x = medida, y = ifelse(is.na(pct), 0, pct), fill = relleno,
-                                   group = grupo)) +
+  ggplot2::ggplot(df, ggplot2::aes(x = medida, y = ifelse(is.na(pct), 0, pct), fill = grupo)) +
     iu_linea_umbral(length(claves), base) +
     ggplot2::geom_col(position = ggplot2::position_dodge(width = 0.85), width = 0.8) +
     ggplot2::geom_text(ggplot2::aes(label = etq), position = ggplot2::position_dodge(width = 0.85),
                        hjust = -0.12, size = base / ggplot2::.pt * 0.85,
                        family = iu_letra_grafica(), color = paste0("#", IU_TEXTO)) +
-    ggplot2::scale_fill_manual(values = stats::setNames(paste0("#", c(IU_GRIS, IU_VERDE, IU_ROJO)),
-                                                        c(udea, nombre, "rojo")),
+    ggplot2::scale_fill_manual(values = stats::setNames(paste0("#", c(IU_GRIS, IU_VERDE)),
+                                                        c(udea, nombre)),
                                breaks = c(nombre, udea)) +
     ggplot2::scale_y_continuous(limits = c(0, tope * 1.22), expand = c(0, 0)) +
     ggplot2::coord_flip(clip = "off") +
     iu_tema(base) +
-    ggplot2::labs(caption = sprintf(paste("Porcentaje de personas en riesgo alto o muy alto, sobre los",
-                                          "encuestados de cada grupo. En rojo: %d %% o más."), IU_UMBRAL))
+    ggplot2::labs(caption = "Porcentaje de personas en riesgo alto o muy alto, sobre los encuestados de cada grupo.")
 }
 
 # Los dominios, el extralaboral y el estres de un solo grupo (el informe de
-# toda la universidad, que no tiene contra quien compararse): verde, y rojo
-# los que llegan al 30 %.
+# toda la universidad, que no tiene contra quien compararse), en verde, con la
+# linea del 30 %.
 iu_grafica_dominios <- function(pob, base = 30) {
   rot <- unname(IU_DOMINIOS)
   df <- data.frame(medida = factor(rot, levels = rev(rot)),
                    pct = vapply(names(IU_DOMINIOS), function(k) iu_alto(pob$du, k), 0),
                    stringsAsFactors = FALSE)
   df$etq   <- ifelse(is.na(df$pct), sprintf("< %d personas", RES_MIN_N), vapply(df$pct, iu_pct, ""))
-  df$color <- ifelse(iu_rojo(df$pct), "rojo", "verde")
-  ggplot2::ggplot(df, ggplot2::aes(x = medida, y = ifelse(is.na(pct), 0, pct), fill = color)) +
+  ggplot2::ggplot(df, ggplot2::aes(x = medida, y = ifelse(is.na(pct), 0, pct))) +
     iu_linea_umbral(nrow(df), base) +
-    ggplot2::geom_col(width = 0.7) +
+    ggplot2::geom_col(width = 0.7, fill = paste0("#", IU_VERDE)) +
     ggplot2::geom_text(ggplot2::aes(label = etq), hjust = -0.12, size = base / ggplot2::.pt * 0.85,
                        family = iu_letra_grafica(), color = paste0("#", IU_TEXTO)) +
-    ggplot2::scale_fill_manual(values = c(rojo = paste0("#", IU_ROJO), verde = paste0("#", IU_VERDE)),
-                               guide = "none") +
     ggplot2::scale_y_continuous(limits = c(0, max(c(df$pct, IU_UMBRAL), na.rm = TRUE) * 1.22),
                                 expand = c(0, 0)) +
     ggplot2::coord_flip(clip = "off") +
     iu_tema(base) +
-    ggplot2::labs(caption = sprintf(paste("Porcentaje de personas en riesgo alto o muy alto, sobre los",
-                                          "encuestados. En rojo: %d %% o más."), IU_UMBRAL))
+    ggplot2::labs(caption = "Porcentaje de personas en riesgo alto o muy alto, sobre los encuestados.")
 }
 
 # Todas las dimensiones, de mayor a menor riesgo en la unidad. En rojo las que
@@ -883,7 +866,7 @@ iu_unidades_avance <- function() {
 
 
 # La tabla de niveles de la unidad: una fila por dominio intralaboral, total
-# intralaboral, extralaboral y estres; columnas Forma A, Forma B y General.
+# intralaboral, extralaboral y estres; columnas Forma A y Forma B.
 # Cada celda con el color del semaforo de la leyenda de la presentacion.
 iu_tabla_niveles <- function(du, ancho) {
   niv <- lapply(names(IU_NIVEL_FILAS), function(k) iu_nivel_grupo(du, k))
@@ -892,14 +875,12 @@ iu_tabla_niveles <- function(du, ancho) {
   t <- data.frame(medida = unname(IU_NIVEL_FILAS),
                   A = vapply(niv, celda, "", parte = "A"),
                   B = vapply(niv, celda, "", parte = "B"),
-                  G = vapply(niv, celda, "", parte = "general"),
                   stringsAsFactors = FALSE)
   n_a <- sum(du$forma %in% "A"); n_b <- sum(du$forma %in% "B")
   ft <- flextable::flextable(t)
   ft <- flextable::set_header_labels(ft, medida = "Medida",
     A = sprintf("Forma A\n%s", iu_personas(n_a)),
-    B = sprintf("Forma B\n%s", iu_personas(n_b)),
-    G = sprintf("General\n%s", iu_personas(nrow(du))))
+    B = sprintf("Forma B\n%s", iu_personas(n_b)))
   ft <- flextable::font(ft, fontname = IU_LETRA, part = "all")
   ft <- flextable::fontsize(ft, size = 26, part = "all")
   ft <- flextable::fontsize(ft, size = 22, part = "header")
@@ -910,8 +891,8 @@ iu_tabla_niveles <- function(du, ancho) {
   ft <- flextable::color(ft, j = 1, color = paste0("#", IU_TEXTO), part = "body")
   # El total intralaboral va en negrita: agrupa a los cuatro dominios de arriba.
   ft <- flextable::bold(ft, i = which(names(IU_NIVEL_FILAS) == "tot_intra"), j = 1, part = "body")
-  for (i in seq_along(niv)) for (j in 2:4) {
-    nv <- nivel_de(niv[[i]], c("A", "B", "general")[j - 1])
+  for (i in seq_along(niv)) for (j in 2:3) {
+    nv <- nivel_de(niv[[i]], c("A", "B")[j - 1])
     if (is.na(nv)) {
       ft <- flextable::color(ft, i = i, j = j, color = "#7F7F7F", part = "body")
     } else {
@@ -921,21 +902,21 @@ iu_tabla_niveles <- function(du, ancho) {
                              color = if (nv == 5) "white" else "black")
     }
   }
-  ft <- flextable::align(ft, j = 2:4, align = "center", part = "all")
+  ft <- flextable::align(ft, j = 2:3, align = "center", part = "all")
   ft <- flextable::valign(ft, valign = "center", part = "all")
   blanco <- officer::fp_border(color = "white", width = 3)
   ft <- flextable::border_remove(ft)
   ft <- flextable::border_inner(ft, border = blanco, part = "all")
   ft <- flextable::padding(ft, padding.top = 8, padding.bottom = 8, padding.left = 10,
                            padding.right = 10, part = "all")
-  flextable::width(ft, j = 1:4, width = ancho * c(0.49, 0.17, 0.17, 0.17))
+  flextable::width(ft, j = 1:3, width = ancho * c(0.56, 0.22, 0.22))
 }
 
 
 # Niveles de riesgo de cada unidad de la universidad, para el informe de toda
-# la universidad: filas = unidades (las que se le pasen, en ese orden),
-# columnas = las medidas de la tabla de niveles. Cada celda es el nivel
-# GENERAL de la unidad (formas A y B combinadas), con el semaforo.
+# la universidad, en una sola forma: filas = unidades (las que se le pasen, en
+# ese orden), columnas = las medidas de la tabla de niveles. Cada celda es el
+# nivel de las personas de esa forma en la unidad, con el semaforo.
 IU_UNIDADES_POR_DIAPOSITIVA <- 14L
 IU_NIVEL_COLUMNAS <- c(
   dom_liderazgo_relaciones_sociales_trabajo = "Dominio\nLiderazgo y relaciones sociales",
@@ -947,11 +928,12 @@ IU_NIVEL_COLUMNAS <- c(
   tot_estres                                = "Estrés")
 stopifnot(identical(names(IU_NIVEL_COLUMNAS), names(IU_NIVEL_FILAS)))
 
-iu_tabla_unidades <- function(d, unidades, ancho) {
+iu_tabla_unidades <- function(d, unidades, forma, ancho) {
   claves <- names(IU_NIVEL_COLUMNAS)
+  d <- d[d$forma %in% forma, , drop = FALSE]
   niv <- lapply(unidades, function(u) {
     du <- d[!is.na(d$tipo_dependencia) & d$tipo_dependencia == u, , drop = FALSE]
-    lapply(claves, function(k) iu_nivel_grupo(du, k)$general)
+    lapply(claves, function(k) iu_nivel_grupo(du, k)[[forma]])
   })
   n_unidad <- vapply(unidades, function(u) sum(d$tipo_dependencia %in% u), 0L)
   t <- data.frame(unidad = unidades, n = fmt_num(n_unidad), stringsAsFactors = FALSE)
@@ -1093,8 +1075,8 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
     "% cobertura = # trabajadores participantes / # trabajadores pactados para medición × 100",
     paste("% encuestas efectivas = # encuestas efectivas / # trabajadores participantes × 100",
           "(efectiva: la persona aceptó el consentimiento informado)")),
-    left = ct$left, top = ct$top + alto_t + 0.02, width = ct$width, height = 0.75,
-    tam = 16, color = "595959", alinear = "left")
+    left = ct$left, top = ct$top + alto_t + 0.02, width = ct$width, height = 1.0,
+    tam = 22, color = "595959", alinear = "left")
   otros <- setdiff(unique(sexo), c("Masculino", "Femenino"))
   otros <- otros[!is.na(otros)]
   na_sexo <- sum(is.na(sexo))
@@ -1110,7 +1092,7 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
                    top = centro_y - 1.8, width = 7.6, height = 3.6)
   # Mientras la encuesta siga en campo, el mismo informe cambia de un dia a otro.
   doc <- iu_cuadro(doc, sprintf("Datos con corte al %s", iu_fecha(hoy)), left = 14, top = 13.9,
-                   width = 11.8, height = 0.6, tam = 20, color = "595959", alinear = "right")
+                   width = 11.8, height = 0.6, tam = 22, color = "595959", alinear = "right")
 
   # --- sociodemograficas ---
   # Dos diapositivas con cuatro graficas cada una, en rejilla de 2 x 2: cada
@@ -1131,11 +1113,11 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
       centro <- IU_ANCHO_DIAPOSITIVA * (2 * ((q - 1) %% 2) + 1) / 4
       arriba <- IU_GRILLA_TITULO[(q - 1) %/% 2 + 1]
       izq <- centro - IU_GRILLA_ANCHO / 2
-      abajo <- arriba + 0.8
+      abajo <- arriba + 0.95
       titulo_q <- s$nuevo
       if (identical(s$var, "dependencia") && universidad) titulo_q <- "% representación por unidad"
-      doc <- iu_cuadro(doc, titulo_q, left = centro - 6, top = arriba, width = 12, height = 0.75,
-                       tam = 30, color = IU_VERDE, letra = IU_LETRA_TITULO)
+      doc <- iu_cuadro(doc, titulo_q, left = centro - 6.4, top = arriba, width = 12.8, height = 0.9,
+                       tam = 36, color = IU_VERDE, letra = IU_LETRA_TITULO)
       if (identical(s$var, "dependencia")) {
         # Universidad: la representacion por unidad va en su propia diapositiva
         # (son demasiadas). Dependencia: no tiene a quien repartir.
@@ -1158,8 +1140,8 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
   }
 
   # --- intralaboral, extralaboral y estres ---
-  # El nivel de riesgo de la unidad en los tres: el general en grande y debajo
-  # el de cada forma. Los tres cuadros van en fila, del mismo ancho.
+  # El nivel de riesgo de la unidad en los tres, un renglon por cada forma que
+  # tenga personas. Los tres cuadros van en fila, del mismo ancho.
   x <- iu_xml(doc, i_tres)
   for (k in seq_along(IU_TRES)) {
     tr <- IU_TRES[[k]]
@@ -1167,21 +1149,17 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
     p <- iu_parrafo(x, tr$viejo)
     runs <- xml2::xml_find_all(p, "./a:r", IU_NS)
     iu_run_texto(runs[[1]], tr$nuevo)
-    iu_run_texto(runs[[length(runs)]], iu_nivel_txt(nv$general$n, nv$general$nivel))
-    xml2::xml_set_attr(xml2::xml_find_first(runs[[length(runs)]], "./a:rPr", IU_NS), "b", "1")
-    for (r in runs[-c(1, length(runs))]) xml2::xml_remove(r)
-    # Segundo parrafo, mas chico: el nivel de cada forma que tenga personas.
-    formas <- Filter(nzchar, c(
-      if (nv$A$n > 0) sprintf("Forma A: %s", iu_nivel_txt(nv$A$n, nv$A$nivel)) else "",
-      if (nv$B$n > 0) sprintf("Forma B: %s", iu_nivel_txt(nv$B$n, nv$B$nivel)) else ""))
-    if (length(formas)) {
-      p2 <- xml2::xml_add_sibling(p, p, .where = "after")
-      r2 <- xml2::xml_find_all(p2, "./a:r", IU_NS)
-      iu_run_texto(r2[[1]], paste(formas, collapse = " \u00b7 "))
-      for (r in r2[-1]) xml2::xml_remove(r)
-      rpr <- xml2::xml_find_first(r2[[1]], "./a:rPr", IU_NS)
-      xml2::xml_set_attr(rpr, "sz", "2400")
-      xml2::xml_set_attr(rpr, "b", "0")
+    for (r in runs[-1]) xml2::xml_remove(r)
+    # Debajo, un parrafo por forma: "Forma A: " y el nivel en negrita.
+    formas <- Filter(function(f) nv[[f]]$n > 0, c("A", "B"))
+    for (f in rev(formas)) {
+      q <- xml2::xml_add_sibling(p, p, .where = "after")
+      r1 <- xml2::xml_find_first(q, "./a:r", IU_NS)
+      r2 <- xml2::xml_add_sibling(r1, r1, .where = "after")
+      iu_run_texto(r1, sprintf("Forma %s: ", f))
+      iu_run_texto(r2, iu_nivel_txt(nv[[f]]$n, nv[[f]]$nivel))
+      xml2::xml_set_attr(xml2::xml_find_first(r1, "./a:rPr", IU_NS), "b", "0")
+      xml2::xml_set_attr(xml2::xml_find_first(r2, "./a:rPr", IU_NS), "b", "1")
     }
     fig <- iu_figura(p)
     iu_mover(fig, IU_ANCHO_DIAPOSITIVA * (2 * k - 1) / 6 - 3.9, 5.2, 7.8, 3.4)
@@ -1201,12 +1179,14 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
 
   # --- resumenes por dominio ---
   cols <- iu_columnas(pob)
+  # Textos del equipo (2026-11-06).
   notas <- c(
-    sprintf(paste("Cada cifra es el porcentaje de personas en riesgo alto o muy alto, calculado sobre",
-                  "los encuestados de cada columna. En rojo: %d %% o más.",
-                  "< %d: grupo con menos de %d personas, no se muestra."),
+    sprintf(paste("Cada cifra es la suma del porcentaje de personas en riesgo alto o muy alto,",
+                  "calculado sobre los encuestados de cada columna. En rojo: %d %% o más. No se",
+                  "presentan datos de grupos con < %d: grupo con menos de %d personas, quedan como",
+                  "parte del resultado general."),
             IU_UMBRAL, RES_MIN_N, RES_MIN_N))
-  nota_a <- paste("No aplica: esta dimensión solo se pregunta en la Forma A (jefes, profesionales y",
+  nota_a <- paste("No aplica: esta dimensión solo se evalúa en la Forma A (jefes, profesionales y",
                   "técnicos); por eso, en las demás columnas su porcentaje sale únicamente de quienes",
                   "respondieron la Forma A.")
   for (i in i_resumen) {
@@ -1253,7 +1233,8 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
     # diapositiva, se achican las dos filas del encabezado, que en la
     # plantilla son mas altas de lo que necesita su texto.
     nota <- c(notas, if (con_a) nota_a)
-    alto_nota <- 0.33 * (2 + con_a) + 0.15
+    # Renglones de 20 puntos: la nota general ocupa dos y la de "No aplica" otros dos.
+    alto_nota <- 0.4 * (2 + 2 * con_a) + 0.15
     h <- as.numeric(xml2::xml_attr(trs, "h"))
     sobra <- caja$top + sum(h) / IU_EMU + 0.05 + alto_nota - IU_ALTO_DIAPOSITIVA
     if (sobra > 0) {
@@ -1266,7 +1247,7 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
       xml2::xml_set_attr(ext, "cy", format(round(sum(h)), scientific = FALSE))
     }
     doc <- iu_cuadro(doc, nota, left = caja$left, top = caja$top + sum(h) / IU_EMU + 0.05,
-                     width = caja$width, height = alto_nota, tam = 16, alinear = "left")
+                     width = caja$width, height = alto_nota, tam = 20, alinear = "left")
   }
 
   # --- diapositivas nuevas ---
@@ -1320,41 +1301,39 @@ iu_generar <- function(nivel, valor, archivo, plantilla = IU_PLANTILLA,
     n_forma <- c(A = sum(pob$du$forma %in% "A"), B = sum(pob$du$forma %in% "B"))
     sin_forma <- names(n_forma)[n_forma == 0]
     pocas <- names(n_forma)[n_forma > 0 & n_forma < RES_MIN_N]
-    iu_cuadro(doc, c(
-      paste("Nivel según el promedio del puntaje transformado de las personas de cada forma,",
-            "ubicado en el baremo de esa forma."),
-      paste("General: los niveles de la Forma A y de la Forma B, combinados según el número de",
-            "personas de cada una."),
+    nota <- c(
       if (length(pocas))
         sprintf("< %d: la Forma %s tiene menos de %d personas en esta %s; su nivel no se muestra.",
                 RES_MIN_N, pocas[1], RES_MIN_N, nombre_nivel),
       if (length(sin_forma))
-        sprintf("\u2014: en esta %s nadie respondió la Forma %s.", nombre_nivel, sin_forma[1])),
-      left = iu_centro_x(ancho), top = 9.1, width = ancho, height = 1.4, tam = 18,
-      color = "595959", alinear = "left")
+        sprintf("\u2014: en esta %s nadie respondió la Forma %s.", nombre_nivel, sin_forma[1]))
+    if (!length(nota)) return(doc)
+    iu_cuadro(doc, nota, left = iu_centro_x(ancho), top = 9.1, width = ancho, height = 1.2, tam = 22,
+              color = "595959", alinear = "left")
   }))
 
   if (universidad) {
-    # Niveles por unidad, en orden alfabetico y repartidas en varias diapositivas.
+    # Niveles por unidad, una tabla por forma (primero toda la A, despues la
+    # B), en orden alfabetico y repartidas en varias diapositivas.
     unidades <- iu_unidades_avance()$dependencia
     unidades <- unidades[order(to_key(unidades))]
     trozos <- split(unidades, ceiling(seq_along(unidades) / IU_UNIDADES_POR_DIAPOSITIVA))
-    nuevas <- c(nuevas, lapply(seq_along(trozos), function(k) nueva(i_tres, function(doc) {
+    por_forma <- function(f) lapply(seq_along(trozos), function(k) nueva(i_tres, function(doc) {
       doc <- titulo(doc, if (length(trozos) > 1)
-        sprintf("Nivel de riesgo por unidad (%d de %d)", k, length(trozos))
-        else "Nivel de riesgo por unidad")
+        sprintf("Nivel de riesgo por unidad \u2014 Forma %s (%d de %d)", f, k, length(trozos))
+        else sprintf("Nivel de riesgo por unidad \u2014 Forma %s", f))
       doc <- pie(doc)
       ancho <- 24.4
-      doc <- officer::ph_with(doc, iu_tabla_unidades(pob$d, trozos[[k]], ancho),
+      doc <- officer::ph_with(doc, iu_tabla_unidades(pob$d, trozos[[k]], f, ancho),
                               location = officer::ph_location(left = iu_centro_x(ancho), top = 2.5))
-      iu_cuadro(doc, c(
-        paste("Nivel general de cada unidad: el promedio del puntaje transformado de cada forma,",
-              "ubicado en su baremo, y las dos formas combinadas según el número de personas."),
-        sprintf(paste("< %d: la unidad tiene menos de %d personas con resultados; su nivel no se",
-                      "muestra. \u2014: nadie de la unidad ha respondido."), RES_MIN_N, RES_MIN_N)),
+      iu_cuadro(doc,
+        sprintf(paste("Personas: las de la Forma %s en la unidad. < %d: son menos de %d; su nivel",
+                      "no se muestra. \u2014: nadie de la Forma %s en la unidad ha respondido."),
+                f, RES_MIN_N, RES_MIN_N, f),
         left = iu_centro_x(ancho), top = 2.5 + 1.0 + 0.6 * length(trozos[[k]]) + 0.3,
-        width = ancho, height = 1, tam = 16, color = "595959", alinear = "left")
-    })))
+        width = ancho, height = 0.9, tam = 20, color = "595959", alinear = "left")
+    }))
+    nuevas <- c(nuevas, por_forma("A"), por_forma("B"))
     # Representacion por unidad: esperados y encuestados, en las dos mitades.
     nuevas <- c(nuevas, list(nueva(i_socio[length(i_socio)], function(doc) {
       doc <- titulo(doc, "Representación por unidad")
