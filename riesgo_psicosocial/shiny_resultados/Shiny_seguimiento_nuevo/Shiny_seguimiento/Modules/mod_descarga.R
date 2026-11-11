@@ -334,7 +334,11 @@ mod_descarga_server <- function(id, r = reactiveValues()) {
     output$previa <- renderTable({
       f <- filtrados()
       if (is.null(f) || !nrow(f)) return(NULL)
-      utils::head(f, DES_MAX_PREVIA)
+      f <- utils::head(f, DES_MAX_PREVIA)
+      # renderTable muestra las fechas como numeros (dias desde 1970): se pasan a
+      # texto. El Excel no lo necesita: writexl ya las escribe como fechas.
+      for (v in names(f)) if (inherits(f[[v]], "Date")) f[[v]] <- format(f[[v]], "%d/%m/%Y")
+      f
     }, striped = TRUE, hover = TRUE, spacing = "xs", na = "")
 
     # La descarga vuelve a preguntar el rol a la base, como toda acción: quitar
