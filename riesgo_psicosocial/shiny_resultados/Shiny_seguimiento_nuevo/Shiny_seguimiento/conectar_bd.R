@@ -4,14 +4,16 @@
 # Conexion a la base `riesgo_psicosocial` desde fuera de la app de seguimiento.
 #
 # OJO: esto NO es un helper de conexion. Ejecutarlo --por source() o por
-# Rscript-- reescribe seguimiento.respuestas de cabo a rabo. Para solo abrir una
+# Rscript-- reescribe public.respuestas_procesadas de cabo a rabo. Para solo abrir una
 # conexion, copiar bd_conectar() de aqui abajo; no sourcear el archivo entero.
 #
-# Despues de la conexion, el script arma paso a paso `respuestas_bd` --las ocho
-# columnas de identificacion mas las 56 de clasificacion que consulta la Shiny
+# Despues de la conexion, el script arma paso a paso `respuestas_bd` --las
+# columnas de identificacion, las 56 de clasificacion que consulta la Shiny
 # y sus 56 puntajes transformados--
-# calculandolo todo desde la base original seguimiento.respuestas_odk, y con eso
-# REESCRIBE seguimiento.respuestas (bloque 9). marco y metas no se tocan.
+# calculandolo todo desde las respuestas crudas de ODK de la etapa activa
+# (public.odk_respuestas_<etapa>, ETAPA en docker/.env), y con eso REESCRIBE
+# public.respuestas_procesadas y sus vistas de exportacion. marco y metas no
+# se tocan.
 #
 # Los datos de conexion salen de las variables PG_* si estan definidas; si no,
 # de los valores por defecto de aqui abajo.

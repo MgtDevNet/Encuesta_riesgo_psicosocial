@@ -2,16 +2,17 @@
 # -----------------------------------------------------------------------------
 # preparar_bd.R
 # Deja la base lista en un equipo nuevo. Lo unico que hay que traer es
-# PostgreSQL corriendo y los dos insumos externos: el MARCO MUESTRAL y el
-# EXPORT DE ODK. Todo lo demas --esquemas, tablas, indices, el tipo
-# nivel_riesgo, la tabla derivada public.respuestas_procesadas y las metas iniciales--
-# lo genera este script.
+# PostgreSQL corriendo y el MARCO MUESTRAL. Todo lo demas --esquemas, tablas,
+# indices, la tabla derivada public.respuestas_procesadas y las metas
+# iniciales-- lo genera este script.
 #
-#   Rscript scripts/preparar_bd.R                          # verifica y deriva
+# Las respuestas NO se cargan aqui: las descarga de ODK Central
+# descarga_datos_reales/actualizar_datos.sh a public.odk_respuestas_<etapa>
+# (ETAPA en docker/.env). Si esa tabla ya tiene envios, este script los califica.
+#
+#   Rscript scripts/preparar_bd.R                          # verifica y califica
 #   Rscript scripts/preparar_bd.R --marco=Marco.xlsx       # + carga el marco
-#   Rscript scripts/preparar_bd.R --odk=respuestas.csv     # + carga ODK
-#   Rscript scripts/preparar_bd.R --marco=M.xlsx --odk=R.csv   # todo de una
-#   Rscript scripts/preparar_bd.R --citaciones=agenda.xlsx     # + carga la agenda
+#   Rscript scripts/preparar_bd.R --citaciones=agenda.xlsx # + carga la agenda
 #
 #   Las citaciones son un tercer insumo, opcional: la app funciona sin ellas y,
 #   cuando estan, dibuja la linea de citados y el grupo de citados sin responder.
@@ -26,7 +27,7 @@
 # no hay que saber de antemano que archivo llego. El paso 3 lo explica.
 #
 # Es idempotente: se puede volver a correr cuantas veces haga falta. El marco se
-# reemplaza entero, ODK se hace por upsert y las METAS ya editadas no se tocan.
+# reemplaza entero y las METAS ya editadas no se tocan.
 # -----------------------------------------------------------------------------
 
 # --- 0. Ubicacion y paquetes --------------------------------------------------
@@ -84,7 +85,13 @@ if (length(desconocidos))
   stop("Opcion no reconocida: ", paste(desconocidos, collapse = ", "),
        call. = FALSE)
 
-for (f in c(f_marco, f_odk, f_cit))
+# --odk= cargaba un export CSV de ODK con scripts/cargar_respuestas_odk.sh en una
+# tabla que ya no existe. Las respuestas llegan ahora solo por la descarga.
+if (!is.null(f_odk))
+  stop("--odk= ya no existe. Las respuestas se descargan de ODK Central con ",
+       "descarga_datos_reales/actualizar_datos.sh.", call. = FALSE)
+
+for (f in c(f_marco, f_cit))
   if (!file.exists(f)) stop("No se encuentra el archivo: ", f, call. = FALSE)
 
 paso <- function(...) message("\n== ", ...)
@@ -349,33 +356,6 @@ if (!is.null(f_marco)) {
 }
 
 
-# --- 4. Carga del export de ODK -----------------------------------------------
-# La hace cargar_respuestas_odk.sh, que ya resuelve lo delicado: el orden de las
-# columnas del CSV, los nombres de ODK y el huso horario del \copy.
-if (!is.null(f_odk)) {
-  paso("Respuestas de ODK")
-  sh <- "scripts/cargar_respuestas_odk.sh"
-  if (!file.exists(sh)) stop("No se encuentra ", sh, call. = FALSE)
-
-  # El .sh llama a psql, que no conoce las variables PG_* de la app sino las
-  # PG* de libpq. Se traducen aqui para que la carga vaya a la misma base a la
-  # que acaba de conectarse este script y no a la que adivine psql.
-  entorno <- c(sprintf("PG_DB=%s",      cfg$dbname),
-               sprintf("PGDATABASE=%s", cfg$dbname),
-               sprintf("PGHOST=%s",     cfg$host),
-               sprintf("PGPORT=%s",     cfg$port),
-               sprintf("PGUSER=%s",     cfg$user))
-  if (nzchar(cfg$password))
-    entorno <- c(entorno, sprintf("PGPASSWORD=%s", cfg$password))
-
-  codigo <- system2("bash", c(shQuote(sh), shQuote(normalizePath(f_odk))),
-                    env = entorno)
-  if (codigo != 0)
-    stop("La carga de ODK fallo (codigo ", codigo, "). La base quedo como ",
-         "estaba: el script carga todo dentro de una transaccion.", call. = FALSE)
-}
-
-
 # --- 4b. Carga de las citaciones ----------------------------------------------
 # La agenda llega en una base aparte (fecha, hora de inicio y final programadas,
 # id de la persona, nombre y link). Se reemplaza entera, como el marco: es una
@@ -418,7 +398,7 @@ if (!is.null(f_cit)) {
 
 
 # --- 5. Tabla derivada public.respuestas_procesadas ---------------------------------
-# conectar_bd.R lee public.respuestas_procesadas_odk, califica la escala con los
+# conectar_bd.R lee public.odk_respuestas_<etapa>, califica la escala con los
 # diccionarios de Diccionarios/ y reescribe public.respuestas_procesadas, que es la
 # tabla que consulta la app. Se corre en un proceso aparte --tal como esta
 # pensado-- para no arrastrar aqui tidyverse ni su conexion propia.
@@ -426,11 +406,12 @@ if (solo_esquema) {
   paso("Tablas vacias creadas (--solo-esquema)")
   message("  no se derivo public.respuestas_procesadas")
 } else {
-  n_odk <- seg_conteo("public.respuestas_procesadas_odk")
+  tabla_odk <- paste0("public.", seg_tabla_odk())
+  n_odk <- seg_conteo(tabla_odk)
   if (!isTRUE(n_odk > 0)) {
     paso("public.respuestas_procesadas: nada que derivar")
-    message("  public.respuestas_procesadas_odk esta vacia. Cargue el export de ODK y",
-            "\n  vuelva a correr este script.")
+    message("  ", tabla_odk, " no existe o esta vacia. Descargue las respuestas con",
+            "\n  descarga_datos_reales/actualizar_datos.sh (ya califica solo).")
   } else {
     paso("Calificando la escala y reescribiendo public.respuestas_procesadas")
     message("  ", n_odk, " formularios; puede tardar un par de minutos...")
@@ -460,7 +441,7 @@ if (isTRUE(seg_conteo("seguimiento.marco") > 0)) {
 
 # --- 7. Resumen ---------------------------------------------------------------
 paso("Estado de la base")
-for (t in c("seguimiento.marco", "public.respuestas_procesadas_odk",
+for (t in c("seguimiento.marco", paste0("public.", seg_tabla_odk()),
             "public.respuestas_procesadas", "seguimiento.metas",
             "seguimiento.contactos", "seguimiento.citaciones", "auth.usuarios")) {
   n <- seg_conteo(t)

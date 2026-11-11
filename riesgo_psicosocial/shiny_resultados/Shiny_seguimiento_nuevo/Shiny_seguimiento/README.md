@@ -30,13 +30,7 @@ Shiny_seguimiento/
 ├── scripts/
 │   ├── preparar_bd.R        # deja la base lista en un equipo nuevo
 │   ├── cargar_marco_bateria.R # carga el marco REAL (export de nómina) tal cual
-│   ├── cargar_respuestas_odk.sh
-│   ├── gestionar_usuarios.R # alta, reset, baja y bitácora desde la terminal
-│   ├── exportar_odk_csv.R
-│   ├── simular_agenda.R     # agenda de citaciones simulada sobre el marco
-│   ├── simular_respuestas.R # crea respuestas simuladas para el marco
-│   ├── simular_items.R      # recalibra los ítems de las respuestas que existen
-│   └── cargar_datos_simulados.R
+│   └── gestionar_usuarios.R # alta, reset, baja y bitácora desde la terminal
 └── .Renviron                # credenciales (NO se versiona)
 ```
 
@@ -96,9 +90,10 @@ falta. Lo que hace, en orden:
    `cto_init_db()`, las mismas que corre la app al arrancar).
 4. Carga el marco —lo **reemplaza entero**: es una foto de la nómina, y quien ya
    no está tiene que salir del denominador— validando columnas e ids repetidos.
-5. Carga el export de ODK por *upsert*, con `scripts/cargar_respuestas_odk.sh`.
-6. Ejecuta `conectar_bd.R`, que califica la escala con los diccionarios de
-   `Diccionarios/` y reescribe `seguimiento.respuestas`.
+5. Si `public.odk_respuestas_<etapa>` ya tiene envíos (los descarga
+   `descarga_datos_reales/actualizar_datos.sh`), ejecuta `conectar_bd.R`, que
+   califica la escala con los diccionarios de `Diccionarios/` y reescribe
+   `public.respuestas_procesadas`.
 7. Siembra las metas que falten con los elegibles del marco. Las metas ya
    editadas **no se tocan nunca**.
 8. Imprime el conteo de cada tabla y qué falta todavía.
@@ -185,36 +180,6 @@ Por defecto la carga **borra lo simulado** que cuelga del marco anterior
 —respuestas, puntajes, citaciones, grupos y anotaciones—, porque sus ids no
 existen en el marco nuevo. Las metas no se borran, pero conviene reajustarlas:
 las del marco viejo quedan con denominadores que no corresponden.
-
-### Simulaciones sobre el marco cargado
-
-```bash
-Rscript scripts/simular_agenda.R      # agenda de citaciones (--excel deja el .xlsx)
-Rscript scripts/simular_respuestas.R  # crea las respuestas en respuestas_odk
-Rscript scripts/simular_items.R       # calibra los ítems contra los baremos
-Rscript conectar_bd.R                 # califica y reescribe seguimiento.respuestas
-```
-
-En ese orden: `simular_items.R` solo recalibra filas que ya existen, así que
-antes tienen que nacer con `simular_respuestas.R`. La agenda va primero porque
-el envío simulado de cada persona cae después de su citación, como en campo.
-
-`simular_agenda.R` arma la jornada real del operativo: **cuatro sesiones al
-día** (08:00–09:30, 10:00–11:30, 13:30–15:00 y 15:30–17:00), de **hora y
-media** cada una y con un máximo de **30 personas por grupo**. Las franjas no
-comparten ninguna hora de reloj, así que con dos sesiones simultáneas quedan 60
-personas por hora, por debajo del tope de 100 que verifica la app
-(`seg_cit_capacidad`). Los parámetros están al tope del script: `FRANJAS`,
-`DURACION_MIN` y `POR_GRUPO`.
-
-Los grupos se reparten a lo largo de todo el periodo, con sesiones ya pasadas
-—que alimentan "citados sin responder"— y sesiones futuras, que son las que un
-psicólogo puede tomar y anotar.
-
-Con `--solo-excel` no toca la base: vuelca al `.xlsx` la agenda que ya está
-cargada. Sirve cuando se quiere el archivo sin volver a sortear las citaciones,
-que dejaría huérfanos los grupos asignados y descuadraría las respuestas
-simuladas.
 
 ### Citaciones
 

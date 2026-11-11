@@ -10,7 +10,7 @@
 #   Rscript scripts/gestionar_usuarios.R rol <usuario> <rol>
 #   Rscript scripts/gestionar_usuarios.R bitacora [n]
 #
-# <rol> es administrador, coordinador, auxiliar o psicologo; lo que puede hacer
+# <rol> es administrador, coordinador, auxiliar, psicologo o especialista; lo que puede hacer
 # cada uno esta en AUTH_PERMISOS (R/utils_auth.R). Lo mismo se hace desde la
 # pestana Administracion de la app, que ven los administradores.
 # No hay cuentas desactivadas; para quitarle el acceso a alguien se elimina el
