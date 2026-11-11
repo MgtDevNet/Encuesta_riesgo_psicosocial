@@ -143,6 +143,13 @@
 .kpi-linea-pct { font-weight: 600; color: var(--bs-body-color); }
 .kpi-linea-num { min-width: 3.1rem; }
 
+/* Esperados con el desglose de los que se sumaron a la meta: dos columnas
+   (nombre, numero) y ancho para "Contrato < 6 meses" sin partir la linea. */
+.kpi-caja-esperados { flex: 1 1 13rem; min-width: 13rem; }
+.kpi-linea-2 { grid-template-columns: 1fr auto; }
+.kpi-linea-2 .kpi-linea-nom { white-space: nowrap; }
+.kpi-linea-2 .kpi-linea-num { min-width: 0; font-weight: 600; color: var(--bs-body-color); }
+
 /* --- Recuadros plegables (Quién no contestó, no registrados) ---------------
    Nacen plegados: <details> sin `open`, con la cabecera de la tarjeta como
    <summary>. La flecha gira al abrir, como en el descriptivo de Resultados. */

@@ -285,11 +285,11 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
             div(class = "kpi-etiqueta", etiqueta))
       }
       div(class = "kpi-fila mb-3",
-          caja(t$planeado, "Esperados"),
+          caja_esperados(t$planeado, t$fuera_marco, t$post_corte),
           caja(t$encuestados, "Encuestados", "text-success"),
           caja_forma("A", t$encuestados_a, ti$A),
           caja_forma("B", t$encuestados_b, ti$B),
-          caja(t$faltan, "Faltan", "text-danger"),
+          caja_faltan(t$faltan, t$cerrados),
           caja_indicador("Efectividad",         ti$total$efectividad,
                          ti$total$efectivas,   "aceptaron"),
           caja_indicador("No efectivas",        ti$total$pct_no_efectivas,
@@ -810,15 +810,13 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
             # pequeno: si el detalle mostrara otras cifras, compararlo con la
             # cabecera obligaria a traducir.
             div(class = "kpi-fila mb-3",
-                div(class = "kpi-caja", div(class = "kpi-valor", fmt_num(planeado)),
-                    div(class = "kpi-etiqueta", "Esperados")),
+                caja_esperados(planeado, cab$fuera_marco, cab$post_corte),
                 div(class = "kpi-caja",
                     div(class = "kpi-valor text-success", fmt_num(cab$encuestados)),
                     div(class = "kpi-etiqueta", "Encuestados")),
                 caja_forma("A", d$indicadores$A$encuestados, d$indicadores$A),
                 caja_forma("B", d$indicadores$B$encuestados, d$indicadores$B),
-                div(class = "kpi-caja", div(class = "kpi-valor text-danger", fmt_num(faltan)),
-                    div(class = "kpi-etiqueta", "Faltan")),
+                caja_faltan(faltan, cab$cerrados),
                 caja_indicador("Efectividad",         d$indicadores$total$efectividad,
                                d$indicadores$total$efectivas,   "aceptaron"),
                 caja_indicador("No efectivas",        d$indicadores$total$pct_no_efectivas,
@@ -1242,11 +1240,51 @@ card_plegable <- function(id, abierto, titulo, resumen = NULL, ...) {
 # El porcentaje va antes que el numero y los dos en columnas alineadas, para que
 # las filas del cajon de A se comparen con las del de B leyendo en vertical,
 # sin tener que buscar donde empieza cada cifra.
+# Cajon de "Esperados". Si se usan personas que no estaban en la meta --no
+# registradas que se completaron, o contratos menores a 6 meses que se decidio
+# usar-- van debajo, para que se vea de donde salio el aumento. Sin ninguna, el
+# cajon queda como siempre. Mismas lineas que los cajones de forma, que ya
+# caben en su ancho sin partirse.
+caja_esperados <- function(planeado, fuera_marco = 0, post_corte = 0) {
+  linea <- function(nombre, num) div(
+    class = "kpi-linea kpi-linea-2",
+    span(class = "kpi-linea-nom", nombre),
+    span(class = "kpi-linea-num", fmt_num(num)))
+  extra <- c(fuera_marco %||% 0, post_corte %||% 0)
+  div(
+    class = paste("kpi-caja", if (any(extra > 0)) "kpi-caja-esperados"),
+    div(class = "kpi-valor", fmt_num(planeado)),
+    div(class = "kpi-etiqueta", "Esperados"),
+    if (any(extra > 0))
+      div(class = "kpi-indicadores",
+          if (extra[1] > 0) linea("Fuera del marco", extra[1]),
+          if (extra[2] > 0) linea("Contrato < 6 meses", extra[2])))
+}
+
+# Cajon de "Faltan". Faltan = Esperados - Encuestados - Cerrados: los casos que
+# la bitacora cerro (rechazo o ausente sin respuesta) ya no se persiguen. Si hay
+# alguno, va debajo, para que la resta se pueda hacer a mano con lo que se ve.
+caja_faltan <- function(faltan, cerrados = 0) {
+  cerrados <- cerrados %||% 0
+  div(
+    class = "kpi-caja",
+    div(class = "kpi-valor text-danger", fmt_num(faltan)),
+    div(class = "kpi-etiqueta", "Faltan"),
+    if (cerrados > 0)
+      div(class = "kpi-indicadores",
+          div(class = "kpi-linea kpi-linea-2",
+              span(class = "kpi-linea-nom", "Cerrados"),
+              span(class = "kpi-linea-num", fmt_num(cerrados)))))
+}
+
+# La primera linea son los esperados de la forma: el denominador de su
+# Cob. Esperados, para que el porcentaje se pueda comprobar a mano. Sin
+# porcentaje, por eso la columna del medio va vacia.
 caja_forma <- function(letra, encuestados, ind) {
   linea <- function(nombre, pct, num) div(
     class = "kpi-linea",
     span(class = "kpi-linea-nom", nombre),
-    span(class = "kpi-linea-pct", fmt_pct(pct)),
+    span(class = "kpi-linea-pct", if (!is.null(pct)) fmt_pct(pct)),
     span(class = "kpi-linea-num", fmt_num(num)))
 
   div(
@@ -1254,6 +1292,7 @@ caja_forma <- function(letra, encuestados, ind) {
     div(class = "kpi-valor text-success", fmt_num(encuestados)),
     div(class = "kpi-etiqueta", paste("Forma", letra)),
     div(class = "kpi-indicadores",
+        linea("Esperados",      NULL,              ind$marco),
         linea("Efectividad",    ind$efectividad,   ind$efectivas),
         linea("Cob. Esperados", ind$cob_esperados, ind$encuestados))
   )

@@ -994,11 +994,20 @@ seg_avance <- function(tipos = NULL) {
                  AND %1$s = 'A'))::int                                  AS encuestados_a,
              (count(DISTINCT r.id_anonimizado) FILTER (
                WHERE m.estado_vinculacion = 'Activo'
-                 AND %1$s = 'B'))::int                                  AS encuestados_b,
+                                 AND %1$s = 'B'))::int                  AS encuestados_b,
+             -- Elegibles que NO estaban en la meta: la meta se siembra con los
+             -- activos del marco oficial, asi que quien entra despues --un no
+             -- registrado completado o un contrato menor a 6 meses que se
+             -- decidio usar-- se suma aparte a los esperados (ver `planeado`).
+             (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'
+                                 AND mo.id_anonimizado IS NULL))::int   AS fuera_marco,
+             (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'
+                                 AND mo.estado_vinculacion = $3))::int  AS post_corte,
              (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'
                                  AND r.id_anonimizado IS NULL
                                  AND k.cerrado))::int                   AS cerrados
         FROM seguimiento.marco_completo m
+        LEFT JOIN seguimiento.marco mo ON mo.id_anonimizado = m.id_anonimizado
         LEFT JOIN %2$s r ON m.id_anonimizado = r.id_anonimizado
         LEFT JOIN (%3$s) k ON m.id_anonimizado = k.id_anonimizado
         LEFT JOIN %4$s f ON m.id_anonimizado = f.id_anonimizado
@@ -1009,12 +1018,12 @@ seg_avance <- function(tipos = NULL) {
            b.dependencia || ' · ' || COALESCE(b.tipo_dependencia, '') AS clave,
            b.elegibles, b.total_marco, b.encuestados,
            b.elegibles_a, b.elegibles_b, b.encuestados_a, b.encuestados_b,
-           b.cerrados,
-           COALESCE(mt.planeado, b.elegibles)::int                  AS planeado,
-           GREATEST(0, COALESCE(mt.planeado, b.elegibles)
+           b.cerrados, b.fuera_marco, b.post_corte,
+           COALESCE(mt.planeado + b.fuera_marco + b.post_corte, b.elegibles)::int                  AS planeado,
+           GREATEST(0, COALESCE(mt.planeado + b.fuera_marco + b.post_corte, b.elegibles)
                        - b.encuestados - b.cerrados)::int           AS faltan,
-           (CASE WHEN COALESCE(mt.planeado, b.elegibles) > 0
-                THEN round(100.0 * b.encuestados / COALESCE(mt.planeado, b.elegibles), 1)
+           (CASE WHEN COALESCE(mt.planeado + b.fuera_marco + b.post_corte, b.elegibles) > 0
+                THEN round(100.0 * b.encuestados / COALESCE(mt.planeado + b.fuera_marco + b.post_corte, b.elegibles), 1)
                 ELSE 0 END)::numeric                                 AS avance,
            mt.nota, mt.actualizado
       FROM base b
@@ -1022,7 +1031,7 @@ seg_avance <- function(tipos = NULL) {
                                      AND mt.tipo_dependencia = b.tipo_dependencia
      ORDER BY b.dependencia, b.tipo_dependencia", SEG_FORMA, SEG_RESPONDIO, seg_sql_cierre(),
      SEG_FORMA_ODK),
-    params = list(usar_tipo, pg_lista(tipos)))
+    params = list(usar_tipo, pg_lista(tipos), SEG_POST_CORTE))
 
   a$etiqueta <- seg_etiqueta_dep(a$dependencia, a$clave, seg_deps_repetidas())
   repartir_formas(a)
@@ -1115,17 +1124,28 @@ seg_detalle <- function(dependencia) {
              WHERE m.estado_vinculacion = 'Activo'))::int           AS encuestados,
            (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'
                                AND r.id_anonimizado IS NULL
-                               AND k.cerrado))::int                 AS cerrados
+                               AND k.cerrado))::int                 AS cerrados,
+           (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'
+                               AND mo.id_anonimizado IS NULL))::int AS fuera_marco,
+           (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'
+                               AND mo.estado_vinculacion = $2))::int AS post_corte
       FROM seguimiento.marco_completo m
+      LEFT JOIN seguimiento.marco mo ON mo.id_anonimizado = m.id_anonimizado
       LEFT JOIN %s r ON m.id_anonimizado = r.id_anonimizado
       LEFT JOIN (%s) k ON m.id_anonimizado = k.id_anonimizado
      WHERE (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = $1
-     GROUP BY m.dependencia", SEG_RESPONDIO, seg_sql_cierre()), params = list(dependencia))
+     GROUP BY m.dependencia", SEG_RESPONDIO, seg_sql_cierre()),
+    params = list(dependencia, SEG_POST_CORTE))
 
   meta <- db_get("SELECT planeado, nota, actualizado, actualizado_por
                     FROM seguimiento.metas
                    WHERE (dependencia || ' · ' || tipo_dependencia) = $1",
                  params = list(dependencia))
+  # Misma regla que seg_avance(): a la meta se le suman quienes entraron
+  # despues de sembrarla (fuera del marco y contratos menores a 6 meses usados).
+  if (nrow(meta) && nrow(cab)) {
+    meta$planeado <- meta$planeado + cab$fuera_marco[1] + cab$post_corte[1]
+  }
 
   # La forma sale de SEG_FORMA (ODK si respondio, marco si no), igual que en
   # seg_avance(); el resto de campos son atributos del marco.
@@ -1390,7 +1410,8 @@ seg_sql_efectiva <- function() {
 seg_totales <- function(avance) {
   if (is.null(avance) || nrow(avance) == 0) {
     return(list(planeado = 0, encuestados = 0, faltan = 0, avance = 0,
-                dependencias = 0, completas = 0,
+                dependencias = 0, completas = 0, fuera_marco = 0, post_corte = 0,
+                cerrados = 0,
                 planeado_a = 0, encuestados_a = 0,
                 planeado_b = 0, encuestados_b = 0))
   }
@@ -1409,6 +1430,9 @@ seg_totales <- function(avance) {
     avance        = if (pl > 0) round(100 * en / pl, 1) else 0,
     dependencias  = nrow(avance),
     completas     = sum(avance$avance >= 100),
+    cerrados      = sum(avance$cerrados),
+    fuera_marco   = sum(avance$fuera_marco),
+    post_corte    = sum(avance$post_corte),
     planeado_a    = sum(avance$planeado_a),
     encuestados_a = sum(avance$encuestados_a),
     planeado_b    = sum(avance$planeado_b),
