@@ -570,11 +570,13 @@ seg_post_corte <- function() {
     params = list(seg_etapa(), SEG_POST_CORTE))
 }
 
-# `accion`: "usar", "no_usar" o "reabrir". Usar y no usar solo sobre una
-# pendiente --si dos personas deciden a la vez, gana la primera-- y reabrir la
-# devuelve a pendiente, que es no usarla mientras nadie decida otra cosa.
+# `accion`: "usar" o "reabrir". Usar solo sobre una pendiente --si dos personas
+# deciden a la vez, gana la primera-- y reabrir la devuelve a pendiente, que es
+# no usarla. No hay "no usar": pendiente ya es no contar, y para sacarla del
+# todo esta Borrar (seg_borrar_persona()). La columna `usar` sigue siendo
+# booleana por las decisiones "no usar" que se hubieran guardado antes.
 seg_decidir_post_corte <- function(id, accion, usuario = NA_character_) {
-  accion <- match.arg(accion, c("usar", "no_usar", "reabrir"))
+  accion <- match.arg(accion, c("usar", "reabrir"))
   es <- db_get("SELECT 1 FROM seguimiento.marco
                  WHERE id_anonimizado = $1 AND estado_vinculacion = $2",
                params = list(id, SEG_POST_CORTE))

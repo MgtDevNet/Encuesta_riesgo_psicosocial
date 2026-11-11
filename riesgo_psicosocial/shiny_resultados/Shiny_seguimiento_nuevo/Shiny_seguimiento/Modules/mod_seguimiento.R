@@ -172,12 +172,12 @@ mod_seguimiento_ui <- function(id) {
       ns("citados_dia"), ns("no_registrados"), ns("post_corte"), ns("plegar")))),
     # Borrar una persona (solo administrador): pide confirmacion en el servidor.
     tags$script(HTML(sprintf(
-      "$(document).on('click', '#%s [data-borrar], #%s [data-borrar]', function(){
+      "$(document).on('click', '#%s [data-borrar], #%s [data-borrar], #%s [data-borrar]', function(){
          Shiny.setInputValue('%s', {id:     String($(this).attr('data-borrar')),
                                     origen: String($(this).attr('data-origen'))},
                              {priority: 'event'});
        });",
-      ns("citados_dia"), ns("no_registrados"), ns("borrar"))))
+      ns("citados_dia"), ns("no_registrados"), ns("post_corte"), ns("borrar"))))
   )
 }
 
@@ -587,8 +587,8 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
 
     # --- vinculados despues del corte que respondieron ------------------------
     # Ver SEG_POST_CORTE. Usar la respuesta los vuelve activos en marco_completo,
-    # asi que cuentan en esperados, avance y Resultados; no usarla los deja como
-    # no elegibles, y se puede reabrir.
+    # asi que cuentan en esperados, avance y Resultados; mientras no se usa
+    # siguen como no elegibles. Reabrir y Borrar son del administrador.
     post_corte <- reactive({
       r$respuestas
       tryCatch(seg_post_corte(), error = function(e) NULL)
@@ -597,16 +597,12 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     output$post_corte <- renderUI({
       p <- post_corte()
       if (is.null(p) || nrow(p) == 0) return(NULL)
-      pendientes <- sum(is.na(p$usar))
       card_plegable(
         "post_corte", isolate(abiertos$post_corte),
         "Personas con contrato menor a 6 meses que respondieron",
-        sprintf("· vinculadas después del %s · %s · %s usadas",
+        sprintf("· vinculadas después del %s · %s de %s usadas",
                 format(SEG_CORTE_VINCULACION, "%d/%m/%Y"),
-                if (pendientes > 0)
-                  sprintf("%s de %s por decidir", fmt_num(pendientes), fmt_num(nrow(p)))
-                else "todas decididas",
-                fmt_num(sum(p$usar %in% TRUE))),
+                fmt_num(sum(p$usar %in% TRUE)), fmt_num(nrow(p))),
         div(class = "small text-muted mb-2",
             sprintf("Están en el marco, pero su vinculación empezó después del %s ",
                     format(SEG_CORTE_VINCULACION, "%d/%m/%Y")),
@@ -614,15 +610,23 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
             "Contestaron la encuesta: ",
             tags$b("si se usan sus resultados"), ", cuentan en todo --esperados, avance ",
             "y Resultados-- como cualquier otra persona del marco. Mientras no se ",
-            "decida, o si se decide no usarlos, no cuentan en nada. Su respuesta queda ",
-            "guardada siempre, y una decisión se puede reabrir."),
-        tabla_post_corte(p)
+            "usen, no cuentan en nada. ",
+            tags$b("Una vez usados, queda fijo:"),
+            " solo el administrador puede reabrirlo o borrar a la persona."),
+        tabla_post_corte(p, admin = auth_puede(r$usuario$rol, "borrar_personas"))
       )
     })
 
     observeEvent(input$pc_accion, {
       a <- input$pc_accion
       req(a$id, a$accion)
+      # La decision queda fija, como los datos de un no registrado: reabrirla es
+      # solo del administrador. Se vuelve a leer el rol de la base, porque el
+      # boton se dibuja segun la ficha pero un input se puede mandar a mano.
+      if (identical(a$accion, "reabrir") && !puede_borrar()) {
+        showNotification("Solo el administrador puede reabrir una decisión.", type = "error")
+        return()
+      }
       quien <- if (!is.null(r$usuario)) r$usuario$usuario else NA_character_
       res <- tryCatch({
         seg_decidir_post_corte(a$id, a$accion, quien)
@@ -636,7 +640,6 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
                         r$usuario$origen %||% NA_character_), silent = TRUE)
       showNotification(switch(a$accion,
         usar    = "Se usarán sus resultados: ya cuenta en el avance y en Resultados.",
-        no_usar = "No se usarán sus resultados. Se puede reabrir más adelante.",
         reabrir = "Decisión reabierta: mientras no se decida, sus resultados no se usan."),
         type = "message")
       r$respuestas <- isolate(r$respuestas) + 1
@@ -658,8 +661,10 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
         showNotification("No tiene permiso para borrar personas.", type = "error")
         return()
       }
-      p <- tryCatch(if (identical(b$origen, "no_registrados")) no_registrados()
-                    else citados_del_dia(), error = function(e) NULL)
+      p <- tryCatch(switch(b$origen,
+                           no_registrados = no_registrados(),
+                           post_corte     = post_corte(),
+                           citados_del_dia()), error = function(e) NULL)
       nombre <- if (is.null(p)) NA_character_
                 else p$nombre[match(b$id, p$id_anonimizado)]
       borrar_actual(list(id = b$id, nombre = nombre, origen = b$origen))
@@ -1764,7 +1769,9 @@ tabla_no_registrados <- function(p, borrar = FALSE) {
 
 # --- vinculados despues del corte ---------------------------------------------
 
-tabla_post_corte <- function(p) {
+# `admin`: el administrador ve Reabrir en las decididas y Borrar en todas,
+# igual que en la lista de no registrados. Los demas deciden una sola vez.
+tabla_post_corte <- function(p, admin = FALSE) {
   dia <- function(x) if (is.na(x)) "—" else format(as.POSIXct(x), "%d/%m/%Y", tz = SEG_TZ)
   # fechainivinc se guarda como texto ISO (cargar_marco_bateria.R).
   vinc <- function(x) {
@@ -1790,10 +1797,8 @@ tabla_post_corte <- function(p) {
       tags$td(class = "col-fecha", dia(f$envio)),
       tags$td(class = "col-accion",
               if (!decidido)
-                tagList(boton(f$id_anonimizado, "usar", "Usar resultados",
-                              "btn-outline-primary"),
-                        boton(f$id_anonimizado, "no_usar", "No usar resultados",
-                              "btn-outline-danger"))
+                boton(f$id_anonimizado, "usar", "Usar resultados",
+                      "btn-outline-primary")
               else
                 tagList(
                   if (isTRUE(f$usar))
@@ -1803,8 +1808,9 @@ tabla_post_corte <- function(p) {
                   span(class = "col-medio",
                        paste(c(if (!is.na(f$decidido_por)) f$decidido_por,
                                dia(f$decidido_en)), collapse = " · ")),
-                  boton(f$id_anonimizado, "reabrir", "Reabrir",
-                        "btn-outline-primary"))))
+                  if (admin) boton(f$id_anonimizado, "reabrir", "Reabrir",
+                                   "btn-outline-primary")),
+              if (admin) boton_borrar(f$id_anonimizado, "post_corte")))
   })
 
   div(class = "tabla-dep-caja",
@@ -2897,7 +2903,8 @@ SEG_BORRADAS <- reactiveVal(0)
 
 # De que recuadro se borro, para la bitacora y la lista de Administracion.
 SEG_BORRADA_ORIGEN <- c(citados_dia    = "Quién no contestó",
-                        no_registrados = "Sin estar en el marco")
+                        no_registrados = "Sin estar en el marco",
+                        post_corte     = "Contrato menor a 6 meses")
 
 boton_borrar <- function(id, origen) {
   tags$button(type = "button", class = "btn btn-sm btn-outline-danger ms-1",
