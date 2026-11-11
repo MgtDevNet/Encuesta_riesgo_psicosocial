@@ -355,7 +355,7 @@ seg_crear_marco_completo <- function() {
   }
 
   # Una fila por persona y etapa, solo si ya se decidio: sin fila, la respuesta
-  # esta pendiente y no se usa. Reabrir es borrar la fila.
+  # esta pendiente y no se usa. "No usar" es borrar la fila.
   db_exec("
     CREATE TABLE IF NOT EXISTS seguimiento.decision_post_corte (
       id_anonimizado text        NOT NULL,
@@ -549,6 +549,21 @@ seg_completar_no_registrado <- function(id, dependencia, tipo_vinculacion,
 }
 
 
+# Deja de usar a un no registrado ya completado (solo el administrador, ver el
+# modulo): vuelve a "por completar" y con eso sale de marco_completo, asi que
+# deja de contar en todo. Los datos que tenia se conservan para proponerlos al
+# completarlo otra vez, que es tambien como se corrigen.
+seg_no_usar_no_registrado <- function(id) {
+  n <- db_exec("
+    UPDATE seguimiento.empleados_no_registrados
+       SET completado_en = NULL, completado_por = NULL
+     WHERE id_anonimizado = $1 AND etapa = $2 AND completado_en IS NOT NULL",
+    params = list(id, seg_etapa()))
+  if (!isTRUE(n == 1)) stop("Esta persona no tenía los datos completos.", call. = FALSE)
+  invisible(TRUE)
+}
+
+
 # --- respuestas de vinculados despues del corte -------------------------------
 # Ver SEG_POST_CORTE. La lista de la pestana Avance: quien esta en el marco con
 # vinculacion posterior al corte y mando al menos un envio, con la decision de
@@ -570,20 +585,20 @@ seg_post_corte <- function() {
     params = list(seg_etapa(), SEG_POST_CORTE))
 }
 
-# `accion`: "usar" o "reabrir". Usar solo sobre una pendiente --si dos personas
-# deciden a la vez, gana la primera-- y reabrir la devuelve a pendiente, que es
-# no usarla. No hay "no usar": pendiente ya es no contar, y para sacarla del
-# todo esta Borrar (seg_borrar_persona()). La columna `usar` sigue siendo
-# booleana por las decisiones "no usar" que se hubieran guardado antes.
+# `accion`: "usar" o "no_usar". Usar solo sobre una pendiente --si dos personas
+# deciden a la vez, gana la primera-- y "no usar" la devuelve a pendiente, que
+# es no contarla: se borra la decision, no se guarda un "no". Para sacarla de la
+# lista esta Borrar (seg_borrar_persona()). La columna `usar` sigue siendo
+# booleana por las decisiones "no usar" que guardaba la version anterior.
 seg_decidir_post_corte <- function(id, accion, usuario = NA_character_) {
-  accion <- match.arg(accion, c("usar", "reabrir"))
+  accion <- match.arg(accion, c("usar", "no_usar"))
   es <- db_get("SELECT 1 FROM seguimiento.marco
                  WHERE id_anonimizado = $1 AND estado_vinculacion = $2",
                params = list(id, SEG_POST_CORTE))
   if (!nrow(es)) stop("Esta persona no está en el marco como vinculada después del corte.",
                       call. = FALSE)
 
-  if (accion == "reabrir") {
+  if (accion == "no_usar") {
     db_exec("DELETE FROM seguimiento.decision_post_corte
               WHERE id_anonimizado = $1 AND etapa = $2",
             params = list(id, seg_etapa()))

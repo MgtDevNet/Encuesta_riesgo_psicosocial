@@ -143,8 +143,12 @@ mod_seguimiento_ui <- function(id) {
       "$(document).on('click', '#%s [data-completar]', function(){
          Shiny.setInputValue('%s', String($(this).attr('data-completar')),
                              {priority: 'event'});
+       });
+       $(document).on('click', '#%s [data-nousar]', function(){
+         Shiny.setInputValue('%s', String($(this).attr('data-nousar')),
+                             {priority: 'event'});
        });",
-      ns("no_registrados"), ns("nr_completar")))),
+      ns("no_registrados"), ns("nr_completar"), ns("no_registrados"), ns("nr_no_usar")))),
 
     # Quien se vinculo despues de la fecha de corte y aun asi respondio: se
     # decide aqui si su respuesta se usa. Mismo lugar y mismo motivo que el de
@@ -526,12 +530,14 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
             "Contestaron la encuesta pero su cédula no está en el marco muestral. ",
             "Mientras no se completen su dependencia, tipo de vinculación y nivel ",
             "del empleo, no cuentan en el avance ni aparecen en Resultados. ",
-            tags$b("Una vez guardados, los datos quedan fijos.")),
+            tags$b("Una vez guardados, los datos quedan fijos:"),
+            " solo el administrador puede dejar de usarlos (No usar), y entonces ",
+            "la persona vuelve a quedar por completar."),
         div(class = "small mb-2",
             if (pendientes > 0)
               sprintf("%s de %s por completar.", fmt_num(pendientes), fmt_num(nrow(p)))
             else "Todas tienen los datos completos."),
-        tabla_no_registrados(p, borrar = auth_puede(r$usuario$rol, "borrar_personas"))
+        tabla_no_registrados(p, admin = auth_puede(r$usuario$rol, "borrar_personas"))
       )
     })
 
@@ -552,6 +558,30 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       op <- seg_opciones_no_registrados()
       nr_opciones(op)
       showModal(modal_no_registrado(ns, f, op))
+    })
+
+    # "No usar" a un no registrado ya completado: solo el administrador, con el
+    # rol leido otra vez de la base. Ver seg_no_usar_no_registrado().
+    observeEvent(input$nr_no_usar, {
+      id <- input$nr_no_usar
+      req(id)
+      if (!puede_borrar()) {
+        showNotification("Solo el administrador puede dejar de usar a una persona.",
+                         type = "error")
+        return()
+      }
+      res <- tryCatch({ seg_no_usar_no_registrado(id); NULL },
+                      error = function(e) conditionMessage(e))
+      if (!is.null(res)) {
+        showNotification(res, type = "warning")
+        return()
+      }
+      try(auth_bitacora("no_registrado_no_usar", r$usuario$usuario, id,
+                        r$usuario$origen %||% NA_character_), silent = TRUE)
+      showNotification(paste("Ya no se usan sus resultados: vuelve a quedar por completar.",
+                             "Se pueden volver a usar completando sus datos."),
+                       type = "message")
+      r$respuestas <- isolate(r$respuestas) + 1
     })
 
     # La unidad se muestra al elegir la dependencia: no se pregunta, se deriva.
@@ -588,7 +618,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     # --- vinculados despues del corte que respondieron ------------------------
     # Ver SEG_POST_CORTE. Usar la respuesta los vuelve activos en marco_completo,
     # asi que cuentan en esperados, avance y Resultados; mientras no se usa
-    # siguen como no elegibles. Reabrir y Borrar son del administrador.
+    # siguen como no elegibles. No usar y Borrar son del administrador.
     post_corte <- reactive({
       r$respuestas
       tryCatch(seg_post_corte(), error = function(e) NULL)
@@ -612,7 +642,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
             "y Resultados-- como cualquier otra persona del marco. Mientras no se ",
             "usen, no cuentan en nada. ",
             tags$b("Una vez usados, queda fijo:"),
-            " solo el administrador puede reabrirlo o borrar a la persona."),
+            " solo el administrador puede dejar de usarlos (No usar) o borrar a la persona."),
         tabla_post_corte(p, admin = auth_puede(r$usuario$rol, "borrar_personas"))
       )
     })
@@ -620,11 +650,12 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     observeEvent(input$pc_accion, {
       a <- input$pc_accion
       req(a$id, a$accion)
-      # La decision queda fija, como los datos de un no registrado: reabrirla es
-      # solo del administrador. Se vuelve a leer el rol de la base, porque el
-      # boton se dibuja segun la ficha pero un input se puede mandar a mano.
-      if (identical(a$accion, "reabrir") && !puede_borrar()) {
-        showNotification("Solo el administrador puede reabrir una decisión.", type = "error")
+      # La decision queda fija, como los datos de un no registrado: dejar de
+      # usarla es solo del administrador. Se vuelve a leer el rol de la base,
+      # porque el boton se dibuja segun la ficha pero un input se manda a mano.
+      if (identical(a$accion, "no_usar") && !puede_borrar()) {
+        showNotification("Solo el administrador puede dejar de usar a una persona.",
+                         type = "error")
         return()
       }
       quien <- if (!is.null(r$usuario)) r$usuario$usuario else NA_character_
@@ -640,7 +671,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
                         r$usuario$origen %||% NA_character_), silent = TRUE)
       showNotification(switch(a$accion,
         usar    = "Se usarán sus resultados: ya cuenta en el avance y en Resultados.",
-        reabrir = "Decisión reabierta: mientras no se decida, sus resultados no se usan."),
+        no_usar = "Ya no se usan sus resultados: deja de contar. Se pueden volver a usar."),
         type = "message")
       r$respuestas <- isolate(r$respuestas) + 1
     })
@@ -1766,35 +1797,44 @@ tabla_citados_dia <- function(p, borrar = FALSE) {
 
 # --- personas fuera del marco ---------------------------------------------------
 
-tabla_no_registrados <- function(p, borrar = FALSE) {
+# `admin`: el administrador ve No usar en las completas y Borrar en todas.
+# Una persona que se dejo de usar conserva sus datos anteriores: se muestran
+# tenues, como propuesta, hasta que se vuelva a completar.
+tabla_no_registrados <- function(p, admin = FALSE) {
   # Son timestamptz: fmt_fecha() pasaria por as.Date() en UTC y un envio de
   # la noche saldria con el dia siguiente.
   dia <- function(x) if (is.na(x)) "—" else format(as.POSIXct(x), "%d/%m/%Y", tz = SEG_TZ)
   filas <- lapply(seq_len(nrow(p)), function(i) {
     f <- p[i, ]
     completo <- !is.na(f$completado_en)
+    dato <- function(x) if (completo) x
+                        else span(class = "col-tenue", if (is.na(x)) "Sin dato" else x)
     tags$tr(
       tags$td(class = "col-id",
               if (is.na(f$nombre)) f$id_anonimizado
               else tagList(span(class = "col-nombre", f$nombre),
                            span(class = "col-medio", f$id_anonimizado))),
       tags$td(class = "col-fecha", dia(f$primer_envio)),
-      tags$td(class = "col-dep",
-              if (completo) f$dependencia else span(class = "col-tenue", "Sin dato")),
-      tags$td(if (completo) f$tipo_vinculacion else span(class = "col-tenue", "Sin dato")),
-      tags$td(if (completo) f$nivel_empleo else span(class = "col-tenue", "Sin dato")),
+      tags$td(class = "col-dep", dato(f$dependencia)),
+      tags$td(dato(f$tipo_vinculacion)),
+      tags$td(dato(f$nivel_empleo)),
       tags$td(class = "col-accion",
               if (completo)
-                tagList(chip_estado(list(cls = "bien", txt = "Fijo", sig = "✓")),
+                tagList(chip_estado(list(cls = "bien", txt = "Se usan", sig = "✓")),
                         span(class = "col-medio",
                              paste(c(if (!is.na(f$completado_por)) f$completado_por,
-                                     dia(f$completado_en)), collapse = " · ")))
+                                     dia(f$completado_en)), collapse = " · ")),
+                        if (admin)
+                          tags$button(type = "button", class = "btn btn-sm btn-outline-secondary ms-1",
+                                      `data-nousar` = f$id_anonimizado,
+                                      `aria-label` = paste("No usar a", f$id_anonimizado),
+                                      "No usar"))
               else
                 tags$button(type = "button", class = "btn btn-sm btn-outline-primary",
                             `data-completar` = f$id_anonimizado,
                             `aria-label` = paste("Completar datos de", f$id_anonimizado),
                             "Completar datos"),
-              if (borrar) boton_borrar(f$id_anonimizado, "no_registrados")))
+              if (admin) boton_borrar(f$id_anonimizado, "no_registrados")))
   })
 
   div(class = "tabla-dep-caja",
@@ -1808,7 +1848,7 @@ tabla_no_registrados <- function(p, borrar = FALSE) {
 
 # --- vinculados despues del corte ---------------------------------------------
 
-# `admin`: el administrador ve Reabrir en las decididas y Borrar en todas,
+# `admin`: el administrador ve No usar en las usadas y Borrar en todas,
 # igual que en la lista de no registrados. Los demas deciden una sola vez.
 tabla_post_corte <- function(p, admin = FALSE) {
   dia <- function(x) if (is.na(x)) "—" else format(as.POSIXct(x), "%d/%m/%Y", tz = SEG_TZ)
@@ -1847,8 +1887,8 @@ tabla_post_corte <- function(p, admin = FALSE) {
                   span(class = "col-medio",
                        paste(c(if (!is.na(f$decidido_por)) f$decidido_por,
                                dia(f$decidido_en)), collapse = " · ")),
-                  if (admin) boton(f$id_anonimizado, "reabrir", "Reabrir",
-                                   "btn-outline-primary")),
+                  if (admin) boton(f$id_anonimizado, "no_usar", "No usar",
+                                   "btn-outline-secondary")),
               if (admin) boton_borrar(f$id_anonimizado, "post_corte")))
   })
 
@@ -1866,8 +1906,13 @@ tabla_post_corte <- function(p, admin = FALSE) {
 modal_no_registrado <- function(ns, f, op) {
   quien <- if (is.na(f$nombre)) f$id_anonimizado
            else sprintf("%s (%s)", f$nombre, f$id_anonimizado)
-  elegir <- function(id, rotulo, opciones) {
+  # Quien se dejo de usar trae sus datos anteriores: se proponen ya elegidos.
+  previo <- function(x) if (length(x) == 1 && !is.na(x)) x else ""
+  dep_previa <- if (!is.na(f$dependencia) && !is.na(f$tipo_dependencia))
+                  paste(f$dependencia, f$tipo_dependencia, sep = " \u00b7 ") else ""
+  elegir <- function(id, rotulo, opciones, sel = "") {
     selectizeInput(ns(id), rotulo, choices = c("", opciones), width = "100%",
+                   selected = if (sel %in% opciones) sel else "",
                    options = list(placeholder = "Elija una opción"))
   }
   modalDialog(
@@ -1878,15 +1923,16 @@ modal_no_registrado <- function(ns, f, op) {
       # Se elige la clave "nombre · unidad": un nombre repetido en varias
       # unidades sale una vez por cada una (ver seg_opciones_no_registrados()).
       elegir("nr_dependencia", SEG_NR_CAMPOS[["dependencia"]],
-             stats::setNames(op$dependencia$clave, op$dependencia$etiqueta)),
+             stats::setNames(op$dependencia$clave, op$dependencia$etiqueta), dep_previa),
       uiOutput(ns("nr_unidad")),
       elegir("nr_tipo_vinculacion", SEG_NR_CAMPOS[["tipo_vinculacion"]],
-             op$tipo_vinculacion),
-      elegir("nr_nivel_empleo", SEG_NR_CAMPOS[["nivel_empleo"]], op$nivel_empleo),
+             op$tipo_vinculacion, previo(f$tipo_vinculacion)),
+      elegir("nr_nivel_empleo", SEG_NR_CAMPOS[["nivel_empleo"]], op$nivel_empleo,
+             previo(f$nivel_empleo)),
       div(class = "alert alert-warning small",
           tags$b("Revise antes de guardar: "),
-          "una vez guardados, estos datos quedan fijos y no se pueden cambiar ",
-          "desde la aplicación."),
+          "una vez guardados, estos datos quedan fijos. Solo el administrador ",
+          "puede dejar de usarlos (No usar) para volver a completarlos."),
       uiOutput(ns("nr_aviso"))
     ),
     footer = tagList(

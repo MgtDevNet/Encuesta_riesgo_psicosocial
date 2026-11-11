@@ -23,8 +23,8 @@
 #                     de sesion, a cualquier hora
 #   borrar_personas   borrar personas desde Avance y      administrador
 #                     restaurarlas en Administracion, y
-#                     reabrir la decision de un contrato
-#                     menor a 6 meses
+#                     dejar de usar a un no registrado o a
+#                     un contrato menor a 6 meses
 # El psicologo es quien aplica la encuesta, y un grupo solo se le asigna a un
 # psicologo. La interfaz se dibuja segun el rol de la ficha de sesion, pero cada
 # accion vuelve a leer el rol de la base (auth_puede_usuario()).
@@ -76,7 +76,7 @@ AUTH_PERMISOS_TXT <- c(
   tomar_grupos     = "toma y suelta sus propios grupos",
   registrar_sesion = "registra sus sesiones y observa a cada persona",
   revisar_sesiones = "lee y corrige los registros de sesión",
-  borrar_personas  = "borra personas del seguimiento y las restaura, y reabre decisiones de contratos menores a 6 meses"
+  borrar_personas  = "borra personas del seguimiento y las restaura, y deja de usar a quien está fuera del marco o tiene contrato menor a 6 meses"
 )
 
 AUTH_MIN_CLAVE         <- 8L
