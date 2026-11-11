@@ -19,8 +19,6 @@
 #
 #   --solo-esquema   crea las tablas vacias y no deriva nada (util para dejar
 #                    la base lista ANTES de tener los archivos)
-#   --limpiar        solo con un marco de nomina: borra lo que cuelga del marco
-#                    viejo (ver el paso 3)
 #
 # --marco= acepta los DOS formatos que existen --el canonico y el export de
 # nomina-- y reconoce cual es cual. Es el unico comando que hay que recordar:
@@ -76,11 +74,13 @@ f_marco      <- opcion("marco")
 f_odk        <- opcion("odk")
 f_cit        <- opcion("citaciones")
 solo_esquema <- "--solo-esquema" %in% args
-limpiar      <- "--limpiar" %in% args
+if ("--limpiar" %in% args)
+  stop("--limpiar ya no existe: cargar un marco nunca borra respuestas, citaciones ",
+       "ni contactos.", call. = FALSE)
 
 desconocidos <- setdiff(grep("^--", args, value = TRUE),
                         c(grep("^--(marco|odk|citaciones)=", args, value = TRUE),
-                          "--solo-esquema", "--limpiar"))
+                          "--solo-esquema"))
 if (length(desconocidos))
   stop("Opcion no reconocida: ", paste(desconocidos, collapse = ", "),
        call. = FALSE)
@@ -280,19 +280,11 @@ if (!is.null(f_marco)) {
     if (!file.exists(NOMINA_SCRIPT))
       stop("No se encuentra ", NOMINA_SCRIPT, call. = FALSE)
 
-    # Por defecto se CONSERVA lo que cuelga del marco --respuestas, citaciones,
-    # contactos--: este script se anuncia idempotente, y recargar el mismo marco
-    # no puede llevarse por delante el export de ODK que ya esta cargado. Lo que
-    # quede huerfano se avisa en el resumen del paso 7. Con --limpiar se borra,
-    # que es lo que hace falta cuando el marco nuevo no comparte un solo id con
-    # el viejo; corrido suelto, cargar_marco_bateria.R borra por defecto.
-    extra <- if (limpiar) character(0) else "--conservar"
-    message(if (limpiar) "  --limpiar: se borra lo que cuelga del marco viejo"
-            else         "  se conserva lo que cuelga del marco (use --limpiar para borrarlo)")
-
+    # Solo se reemplazan las personas: respuestas, citaciones y contactos se
+    # conservan (ver cargar_marco_bateria.R). Lo que quede huerfano se avisa en
+    # el resumen del paso 7.
     codigo <- system2(file.path(R.home("bin"), "Rscript"),
-                      c(shQuote(NOMINA_SCRIPT), shQuote(normalizePath(f_marco)),
-                        extra))
+                      c(shQuote(NOMINA_SCRIPT), shQuote(normalizePath(f_marco))))
     if (codigo != 0)
       stop("La carga del marco fallo (codigo ", codigo, "). La base quedo como ",
            "estaba: ese script carga dentro de una transaccion.", call. = FALSE)
@@ -351,8 +343,6 @@ if (!is.null(f_marco)) {
     message("  marco: ", nrow(m), " personas, ",
             length(unique(m$dependencia)), " dependencias")
   }
-} else if (limpiar) {
-  message("\n  AVISO: --limpiar no hace nada sin --marco=; se ignora.")
 }
 
 

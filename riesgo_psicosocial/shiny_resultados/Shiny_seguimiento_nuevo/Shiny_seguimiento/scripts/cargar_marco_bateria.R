@@ -3,15 +3,16 @@
 # cargar_marco_bateria.R
 # Carga el marco REAL --el export de nomina "Bateria 2026"-- tal cual viene.
 #
-#   Rscript scripts/cargar_marco_bateria.R "../Bateria 2026 (1).xlsx"
-#   Rscript scripts/cargar_marco_bateria.R <archivo> --conservar
-#   Rscript scripts/cargar_marco_bateria.R <archivo> --conservar --rehacer-metas
-#   Rscript scripts/cargar_marco_bateria.R <archivo> --corte=2026-05-01
+#   Rscript scripts/cargar_marco_bateria.R <archivo.xlsx> --rehacer-metas
+#   Rscript scripts/cargar_marco_bateria.R <archivo.xlsx> --rehacer-metas --corte=2026-05-01
 #
-# Tambien se llega aqui solo: preparar_bd.R --marco= reconoce este archivo por
-# sus encabezados en la fila 5 y delega en este script, pasandole --conservar
-# salvo que le hayan dado --limpiar. Las dos formas de invocarlo son validas;
-# esta es la directa.
+# Con un marco nuevo use SIEMPRE --rehacer-metas: las metas por dependencia se
+# sembraron con los esperados del marco viejo, y sin rehacerlas Esperados
+# quedaria con esas cifras.
+#
+# Tambien se llega aqui desde preparar_bd.R --marco=, que reconoce el archivo por
+# sus encabezados y delega en este script. Las dos formas son validas; esta es
+# la directa.
 #
 # Aqui el archivo NO se modifica: sus columnas se guardan tal cual --en
 # minusculas, que es lo unico que cambia, porque SQL no distingue mayusculas--
@@ -27,7 +28,7 @@
 #   id_anonimizado     IDENTIFICACION            dependencia        DESCRIPCION_DEPENDENCIA
 #   nombre             NOMBRE                    tipo_dependencia   DESCRIPCION_UNIDAD
 #   tipo_vinculacion   TIPO_VINCULACION          nivel_empleo       GRUPO o GRUPO_CATEGORIA
-#   estado_vinculacion FECHAINIVINC (ver abajo)  forma_cuestionario el grupo (ver abajo)
+#   estado_vinculacion FECHAINIVINC (ver abajo)  forma_cuestionario FORMA, o el grupo (ver abajo)
 #
 # Hay dos versiones del export: la primera ("Bateria 2026") trae tres filas de
 # titulo y una vacia encima de los encabezados, y la columna GRUPO; la de
@@ -48,14 +49,17 @@
 # forma_cuestionario: la Bateria (MinTrabajo y Javeriana, 2010) asigna la forma
 # por el tipo de cargo. A: jefaturas, profesionales, tecnicos y tecnologos. B:
 # auxiliares, asistentes, operarios y servicios generales. El grupo de la nomina
-# (FORMA_GRUPO) los separa. Solo cuenta para los esperados A/B de Avance: quien
-# responde se califica con la forma que contesto en ODK.
+# (FORMA_GRUPO) los separa. Si el archivo trae una columna FORMA con A o B, manda
+# esa columna, persona por persona; si no la trae, la forma sale del grupo. Solo
+# cuenta para los esperados A/B de Avance: quien responde se califica con la
+# forma que contesto en ODK.
 #
-# Por defecto BORRA lo simulado que cuelga del marco viejo --respuestas,
-# puntajes, citaciones, grupos, anotaciones y contactos-- porque sus ids
-# (UDEA-#####) no existen en el marco nuevo y dejarlos descuadra cada cifra de
-# la app. Con --conservar se cargan solo las personas y no se borra nada.
-# Las METAS no se tocan nunca: son lo unico que se edita a mano.
+# Solo se reemplazan las PERSONAS del marco. No se borra nada mas: respuestas,
+# citaciones, contactos, grupos, anotaciones y decisiones se quedan, y quien
+# respondio y no esta en el marco nuevo pasa a la lista de "respondieron sin
+# estar en el marco" de la pestana Avance. (Antes, sin --conservar, se borraba lo
+# que colgaba del marco simulado; ya no hay datos simulados y --conservar se
+# acepta pero no cambia nada.)
 # -----------------------------------------------------------------------------
 
 suppressPackageStartupMessages({
@@ -96,8 +100,8 @@ rehacer_metas <- "--rehacer-metas" %in% args
 corte_arg     <- sub("^--corte=", "", grep("^--corte=", args, value = TRUE))
 f_marco <- args[!startsWith(args, "--")][1]
 if (is.na(f_marco)) {
-  stop("Uso: Rscript scripts/cargar_marco_bateria.R <archivo.xlsx> [--conservar]",
-       " [--rehacer-metas] [--corte=AAAA-MM-DD]", call. = FALSE)
+  stop("Uso: Rscript scripts/cargar_marco_bateria.R <archivo.xlsx> --rehacer-metas",
+       " [--corte=AAAA-MM-DD]", call. = FALSE)
 }
 
 # Ubicarse en la carpeta de la app sin importar desde donde se invoque.
@@ -211,17 +215,31 @@ m$nivel_empleo       <- texto(if ("grupo" %in% names(m)) m$grupo
                               else sub("\\s*-.*$", "", m$grupo_categoria))
 m$estado_vinculacion <- if (hay_fecha)
   ifelse(as.Date(m$fechainivinc) <= corte, "Activo", SEG_POST_CORTE) else "Activo"
-m$forma_cuestionario <- unname(FORMA_GRUPO[m$nivel_empleo])
-sin_forma <- unique(m$nivel_empleo[is.na(m$forma_cuestionario)])
-if (length(sin_forma)) {
-  stop("Grupo sin forma A/B en FORMA_GRUPO: ",
-       paste(sin_forma, collapse = ", "), call. = FALSE)
+if ("forma" %in% names(m)) {
+  # Columna FORMA del archivo: A o B por persona.
+  m$forma_cuestionario <- toupper(texto(m$forma))
+  mala <- which(!m$forma_cuestionario %in% c("A", "B"))
+  if (length(mala)) {
+    stop(length(mala), " personas con FORMA vacia o distinta de A y B (fila de la ",
+         "primera: cedula ", m$identificacion[mala[1]], ").", call. = FALSE)
+  }
+  message("  forma A/B: de la columna FORMA del archivo")
+} else {
+  m$forma_cuestionario <- unname(FORMA_GRUPO[m$nivel_empleo])
+  sin_forma <- unique(m$nivel_empleo[is.na(m$forma_cuestionario)])
+  if (length(sin_forma)) {
+    stop("Grupo sin forma A/B en FORMA_GRUPO: ",
+         paste(sin_forma, collapse = ", "),
+         ". Agregue una columna FORMA (A o B) al archivo, o el grupo a FORMA_GRUPO.",
+         call. = FALSE)
+  }
+  message("  forma A/B: deducida del grupo de la nomina (FORMA_GRUPO)")
 }
 
 sin_dep <- sum(is.na(m$dependencia))
 if (sin_dep) stop(sin_dep, " personas sin DESCRIPCION_DEPENDENCIA.", call. = FALSE)
 
-message("  dependencias: ", length(unique(m$dependencia)),
+message("  dependencias: ", nrow(unique(m[, c("dependencia", "tipo_dependencia")])),
         " · unidades: ", length(unique(m$tipo_dependencia)))
 message(sprintf("  esperados (vinculados hasta el %s): %s · despues del corte: %s",
                 format(corte, "%d/%m/%Y"), sum(m$estado_vinculacion == "Activo"),
@@ -235,26 +253,15 @@ message(sprintf("  esperados forma A: %s · forma B: %s",
 # avisa en vez de fallar a mitad de la carga.
 cols_bd <- db_get("SELECT column_name FROM information_schema.columns
                     WHERE table_schema = 'seguimiento' AND table_name = 'marco'")$column_name
-sobran <- setdiff(names(m), cols_bd)
+sobran <- setdiff(names(m), c(cols_bd, "forma"))  # FORMA ya quedo en forma_cuestionario
 if (length(sobran)) {
   message("  AVISO: columnas del archivo que la tabla no tiene y no se cargan: ",
           paste(sobran, collapse = ", "))
 }
 m <- m[, intersect(names(m), cols_bd), drop = FALSE]
 
-paso(if (conservar) "Carga (se conserva lo simulado)" else "Carga (se borra lo simulado)")
+paso("Carga")
 invisible(db_tx(function(con) {
-  if (!conservar) {
-    # Orden: lo que referencia primero. puntajes cuelga de respuestas_odk con
-    # ON DELETE CASCADE, asi que se va con ella.
-    for (t in c("seguimiento.observacionespsicologos", "seguimiento.grupos_aplicador",
-                "seguimiento.citaciones", "seguimiento.contactos",
-                "public.respuestas_procesadas", "seguimiento.puntajes",
-                "public.respuestas_procesadas_odk")) {
-      n <- DBI::dbExecute(con, sprintf("DELETE FROM %s", t))
-      message("  ", t, ": ", n, " filas borradas")
-    }
-  }
   DBI::dbExecute(con, "TRUNCATE seguimiento.marco")
   DBI::dbAppendTable(con, DBI::Id(schema = "seguimiento", table = "marco"), m)
   # Con un marco distinto las metas viejas no cuadran con nada: --rehacer-metas
@@ -279,7 +286,7 @@ print(db_get("
   SELECT (SELECT count(*) FROM seguimiento.marco)::int           AS marco,
          (SELECT count(*) FROM seguimiento.marco
            WHERE estado_vinculacion = 'Activo')::int             AS esperados,
-         (SELECT count(DISTINCT dependencia) FROM seguimiento.marco)::int AS dependencias,
+         (SELECT count(*) FROM (SELECT DISTINCT dependencia, tipo_dependencia FROM seguimiento.marco) d)::int AS dependencias,
          (SELECT count(*) FROM public.respuestas_procesadas)::int      AS respuestas,
          (SELECT count(*) FROM seguimiento.citaciones)::int      AS citaciones,
          (SELECT count(*) FROM seguimiento.metas)::int           AS metas"),
