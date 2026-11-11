@@ -69,11 +69,13 @@ db_exec("
 # Metas: lo único que edita el usuario. No se borra al recargar.
 db_exec("
   CREATE TABLE IF NOT EXISTS seguimiento.metas (
-    dependencia   text PRIMARY KEY,
+    dependencia   text,
+    tipo_dependencia text,
     planeado      integer NOT NULL DEFAULT 0,
     nota          text,
     actualizado   timestamptz NOT NULL DEFAULT now(),
-    actualizado_por text
+    actualizado_por text,
+    PRIMARY KEY (dependencia, tipo_dependencia)
   )")
 
 db_exec("CREATE INDEX IF NOT EXISTS idx_marco_dep ON seguimiento.marco (dependencia)")
@@ -145,12 +147,13 @@ message("  respuestas: ", nrow(resp), " registros")
 
 # --- metas: se crean solo las que falten, con el N elegible como valor inicial -
 n <- db_exec("
-  INSERT INTO seguimiento.metas (dependencia, planeado, nota, actualizado_por)
-  SELECT dependencia, count(*) FILTER (WHERE estado_vinculacion = 'Activo'),
+  INSERT INTO seguimiento.metas (dependencia, tipo_dependencia, planeado, nota, actualizado_por)
+  SELECT dependencia, tipo_dependencia, count(*) FILTER (WHERE estado_vinculacion = 'Activo'),
          'Valor inicial = elegibles del marco', 'carga inicial'
     FROM seguimiento.marco
-   GROUP BY dependencia
-  ON CONFLICT (dependencia) DO NOTHING")
+   WHERE tipo_dependencia IS NOT NULL
+   GROUP BY dependencia, tipo_dependencia
+  ON CONFLICT (dependencia, tipo_dependencia) DO NOTHING")
 message("  metas creadas: ", n, " (las existentes no se tocaron)")
 
 r1 <- db_get("SELECT count(*) n FROM seguimiento.marco")$n

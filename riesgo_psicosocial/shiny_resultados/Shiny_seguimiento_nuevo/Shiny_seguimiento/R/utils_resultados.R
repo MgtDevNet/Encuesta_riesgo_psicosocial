@@ -662,6 +662,19 @@ res_datos <- function() {
   d
 }
 
+# La dependencia como la ve la pestaña Resultados: un nombre que está en varias
+# unidades ("Departamento de Formación Académica" está en cuatro escuelas) pasa
+# a "nombre · unidad", para que el filtro y la desagregación no sumen como una
+# sola a dependencias distintas. Es la misma etiqueta del avance
+# (seg_etiqueta_dep()). No va dentro de res_datos(): el informe en PowerPoint
+# filtra por el nombre y la unidad por separado y necesita el nombre tal cual.
+res_dependencia_con_unidad <- function(d) {
+  if (is.null(d) || nrow(d) == 0) return(d)
+  clave <- paste(d$dependencia, d$tipo_dependencia, sep = " \u00b7 ")
+  d$dependencia <- seg_etiqueta_dep(d$dependencia, clave, seg_deps_repetidas())
+  d
+}
+
 # Traduce lo que esté en el mapa y deja tal cual lo que no, en vez de hacerlo
 # caer en "Sin dato". Es para valores que YA llegan en texto: la nómina puede
 # traer mañana un grupo nuevo, y hacerlo desaparecer en un cajón de sastre es

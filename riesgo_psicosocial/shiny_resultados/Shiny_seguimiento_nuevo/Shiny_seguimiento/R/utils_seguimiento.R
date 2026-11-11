@@ -70,14 +70,20 @@ seg_init_db <- function() {
 
   # Las metas son lo unico que se edita desde el lado del seguimiento, asi que
   # esta tabla nunca se reescribe: solo se le agregan las dependencias nuevas.
+  # Van por dependencia Y unidad: hay nombres de dependencia que se repiten en
+  # varias unidades ("Departamento de Formacion Academica" esta en cuatro
+  # escuelas) y cada uno es una dependencia distinta con su propia meta.
   db_exec("
     CREATE TABLE IF NOT EXISTS seguimiento.metas (
-      dependencia     text PRIMARY KEY,
-      planeado        integer     NOT NULL DEFAULT 0,
-      nota            text,
-      actualizado     timestamptz NOT NULL DEFAULT now(),
-      actualizado_por text
+      dependencia      text,
+      tipo_dependencia text,
+      planeado         integer     NOT NULL DEFAULT 0,
+      nota             text,
+      actualizado      timestamptz NOT NULL DEFAULT now(),
+      actualizado_por  text,
+      PRIMARY KEY (dependencia, tipo_dependencia)
     )")
+  seg_metas_por_unidad()
 
   # Las citaciones: a quien se cita, que dia, en que franja y por que link. Es el
   # TERCER insumo externo --llega en una base aparte, como el marco y ODK-- y se
@@ -485,12 +491,22 @@ seg_opciones_no_registrados <- function() {
   distintos <- function(col) sort(db_get(sprintf(
     "SELECT DISTINCT %s AS v FROM seguimiento.marco WHERE %s IS NOT NULL", col, col))$v)
   list(
-    dependencia      = db_get("
-      SELECT dependencia,
-             mode() WITHIN GROUP (ORDER BY tipo_dependencia) AS unidad
-        FROM seguimiento.marco
-       GROUP BY dependencia
-       ORDER BY dependencia"),
+    # Una opcion por dependencia Y unidad: un nombre repetido en varias
+    # unidades sale una vez por cada una, con la unidad en el rotulo, y lo que
+    # se elige es la clave. Antes se elegia el nombre y la unidad se deducia
+    # como la mas frecuente, y quien era de una escuela quedaba en otra.
+    dependencia      = local({
+      d <- db_get("
+        SELECT dependencia, tipo_dependencia AS unidad,
+               dependencia || ' · ' || tipo_dependencia AS clave
+          FROM seguimiento.marco
+         WHERE tipo_dependencia IS NOT NULL
+         GROUP BY dependencia, tipo_dependencia
+         ORDER BY dependencia, tipo_dependencia")
+      d$etiqueta <- seg_etiqueta_dep(d$dependencia, d$clave,
+                                     d$dependencia[duplicated(d$dependencia)])
+      d
+    }),
     tipo_vinculacion = distintos("tipo_vinculacion"),
     nivel_empleo     = distintos("nivel_empleo"))
 }
@@ -508,12 +524,15 @@ seg_completar_no_registrado <- function(id, dependencia, tipo_vinculacion,
                                  collapse = ", "), ".", call. = FALSE)
   }
   op <- seg_opciones_no_registrados()
-  if (!dependencia %in% op$dependencia$dependencia ||
+  if (!dependencia %in% op$dependencia$clave ||
       !tipo_vinculacion %in% op$tipo_vinculacion ||
       !nivel_empleo %in% op$nivel_empleo) {
     stop("Alguno de los valores no está entre las categorías del marco.", call. = FALSE)
   }
-  unidad <- op$dependencia$unidad[match(dependencia, op$dependencia$dependencia)]
+  # `dependencia` es la clave "nombre · unidad"; se guardan por separado.
+  fila <- op$dependencia[match(dependencia, op$dependencia$clave), ]
+  dependencia <- fila$dependencia
+  unidad <- fila$unidad
 
   n <- db_exec("
     UPDATE seguimiento.empleados_no_registrados
@@ -721,7 +740,11 @@ seg_crear_vista_estado <- function() {
              WHEN k.resultado = 'rechazo'      THEN 'Rechazo insistente'
              WHEN k.resultado = 'ausente'      THEN 'Rechazo ausente'
              ELSE 'Pendiente'
-           END AS resultado_final_txt
+           END AS resultado_final_txt,
+           -- Al final y no junto a la dependencia: CREATE OR REPLACE VIEW
+           -- solo deja agregar columnas al final. Con ella se filtra por
+           -- dependencia Y unidad (ver seg_avance()).
+           m.tipo_dependencia
       FROM seguimiento.marco_completo m
       LEFT JOIN env    e ON e.id_anonimizado = m.id_anonimizado
       LEFT JOIN cto    k ON k.id_anonimizado = m.id_anonimizado
@@ -762,7 +785,7 @@ seg_resumen_final <- function(dependencias = NULL, solo_elegibles = TRUE) {
   x <- db_get(sprintf("
     SELECT resultado_final_persona AS codigo, count(*)::int AS personas
       FROM seguimiento.estado_persona
-     WHERE ($1::boolean IS FALSE OR dependencia = ANY(string_to_array($2, chr(1))))
+     WHERE ($1::boolean IS FALSE OR (dependencia || ' · ' || COALESCE(tipo_dependencia, '')) = ANY(string_to_array($2, chr(1))))
        %s
      GROUP BY 1", if (isTRUE(solo_elegibles)) "AND elegible" else ""),
     params = list(length(dependencias) > 0, pg_lista(dependencias)))
@@ -781,16 +804,61 @@ seg_resumen_final <- function(dependencias = NULL, solo_elegibles = TRUE) {
 
 # Da de alta las dependencias del marco que todavia no tienen meta, con los
 # elegibles como valor inicial. ON CONFLICT DO NOTHING: una meta ya editada no
-# se pisa nunca, ni siquiera si el marco cambio de tamano.
+# se pisa nunca, ni siquiera si el marco cambio de tamano. Una meta por
+# dependencia y unidad (ver seg_init_db()).
 seg_sembrar_metas <- function(usuario = "carga inicial") {
   db_exec("
-    INSERT INTO seguimiento.metas (dependencia, planeado, nota, actualizado_por)
-    SELECT dependencia,
+    INSERT INTO seguimiento.metas
+           (dependencia, tipo_dependencia, planeado, nota, actualizado_por)
+    SELECT dependencia, tipo_dependencia,
            count(*) FILTER (WHERE estado_vinculacion = 'Activo'),
            'Valor inicial = elegibles del marco', $1
       FROM seguimiento.marco
-     GROUP BY dependencia
-    ON CONFLICT (dependencia) DO NOTHING", params = list(usuario))
+     WHERE tipo_dependencia IS NOT NULL
+     GROUP BY dependencia, tipo_dependencia
+    ON CONFLICT (dependencia, tipo_dependencia) DO NOTHING", params = list(usuario))
+}
+
+# La tabla de metas iba antes solo por NOMBRE de dependencia, y una meta con
+# nombre repetido era la suma de las de varias unidades (149 para las cuatro
+# "Departamento de Formacion Academica"). Se pasa a dependencia y unidad una
+# sola vez, cuando la llave todavia es la vieja:
+#   - un nombre que esta en una sola unidad se queda con su meta, tal cual;
+#   - un nombre repetido con la meta inicial (los elegibles) se borra y se
+#     vuelve a sembrar por unidad, que es el mismo numero repartido;
+#   - un nombre repetido con una meta editada a mano no se puede repartir: se
+#     deja sin unidad --no la lee nadie-- para que quede la constancia, y esas
+#     dependencias usan sus elegibles hasta que alguien les ponga meta.
+seg_metas_por_unidad <- function() {
+  vieja <- isTRUE(nrow(db_get("
+    SELECT 1 FROM pg_constraint c
+      JOIN pg_class t     ON t.oid = c.conrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+     WHERE n.nspname = 'seguimiento' AND t.relname = 'metas'
+       AND c.contype = 'p' AND array_length(c.conkey, 1) = 1")) > 0)
+  if (!vieja) return(invisible(FALSE))
+  pool::poolWithTransaction(db_pool(), function(con) {
+    DBI::dbExecute(con, "ALTER TABLE seguimiento.metas
+                           ADD COLUMN IF NOT EXISTS tipo_dependencia text")
+    DBI::dbExecute(con, "
+      UPDATE seguimiento.metas mt
+         SET tipo_dependencia = u.unidad
+        FROM (SELECT dependencia, min(tipo_dependencia) AS unidad
+                FROM seguimiento.marco
+               WHERE tipo_dependencia IS NOT NULL
+               GROUP BY dependencia
+              HAVING count(DISTINCT tipo_dependencia) = 1) u
+       WHERE mt.dependencia = u.dependencia")
+    DBI::dbExecute(con, "
+      DELETE FROM seguimiento.metas
+       WHERE tipo_dependencia IS NULL
+         AND nota = 'Valor inicial = elegibles del marco'")
+    DBI::dbExecute(con, "ALTER TABLE seguimiento.metas DROP CONSTRAINT metas_pkey")
+    DBI::dbExecute(con, "ALTER TABLE seguimiento.metas
+                           ADD CONSTRAINT metas_dep_unidad UNIQUE (dependencia, tipo_dependencia)")
+  })
+  seg_sembrar_metas(usuario = "separacion por unidad")
+  invisible(TRUE)
 }
 
 
@@ -910,7 +978,7 @@ seg_avance <- function(tipos = NULL) {
   a <- db_get(sprintf("
     WITH base AS (
       SELECT m.dependencia,
-             min(m.tipo_dependencia) AS tipo_dependencia,
+             m.tipo_dependencia,
              (count(*) FILTER (WHERE m.estado_vinculacion = 'Activo'))::int AS elegibles,
              count(*)::int                                              AS total_marco,
              (count(DISTINCT r.id_anonimizado) FILTER (
@@ -933,9 +1001,10 @@ seg_avance <- function(tipos = NULL) {
         LEFT JOIN (%3$s) k ON m.id_anonimizado = k.id_anonimizado
         LEFT JOIN %4$s f ON m.id_anonimizado = f.id_anonimizado
        WHERE ($1::boolean IS FALSE OR m.tipo_dependencia = ANY(string_to_array($2, chr(1))))
-       GROUP BY m.dependencia
+       GROUP BY m.dependencia, m.tipo_dependencia
     )
     SELECT b.dependencia, b.tipo_dependencia,
+           b.dependencia || ' · ' || COALESCE(b.tipo_dependencia, '') AS clave,
            b.elegibles, b.total_marco, b.encuestados,
            b.elegibles_a, b.elegibles_b, b.encuestados_a, b.encuestados_b,
            b.cerrados,
@@ -948,11 +1017,30 @@ seg_avance <- function(tipos = NULL) {
            mt.nota, mt.actualizado
       FROM base b
       LEFT JOIN seguimiento.metas mt ON mt.dependencia = b.dependencia
-     ORDER BY b.dependencia", SEG_FORMA, SEG_RESPONDIO, seg_sql_cierre(),
+                                     AND mt.tipo_dependencia = b.tipo_dependencia
+     ORDER BY b.dependencia, b.tipo_dependencia", SEG_FORMA, SEG_RESPONDIO, seg_sql_cierre(),
      SEG_FORMA_ODK),
     params = list(usar_tipo, pg_lista(tipos)))
 
+  a$etiqueta <- seg_etiqueta_dep(a$dependencia, a$clave, seg_deps_repetidas())
   repartir_formas(a)
+}
+
+# Nombres de dependencia que estan en mas de una unidad. Se miran en todo el
+# marco y no en lo filtrado: con el filtro de una sola unidad, "Departamento de
+# Formacion Academica" se seguiria llamando igual que en las otras tres.
+seg_deps_repetidas <- function() {
+  db_get("
+    SELECT dependencia FROM seguimiento.marco_completo
+     GROUP BY dependencia
+    HAVING count(DISTINCT tipo_dependencia) > 1")$dependencia
+}
+
+# Lo que se muestra de una dependencia: su nombre, o "nombre · unidad" si el
+# nombre se repite en varias unidades. Es lo mismo que la clave en ese caso,
+# asi que se puede buscar y ordenar por aqui sin confundir dos dependencias.
+seg_etiqueta_dep <- function(dependencia, clave, repetidas) {
+  ifelse(dependencia %in% repetidas, clave, dependencia)
 }
 
 
@@ -990,21 +1078,22 @@ repartir_formas <- function(a) {
 # escritura se conserva: `seguimiento.metas` sigue siendo editable desde fuera
 # (un script o SQL a mano), y esta es la unica ruta que valida el numero y deja
 # constancia de quien y cuando.
-seg_guardar_meta <- function(dependencia, planeado, usuario = NA_character_,
+seg_guardar_meta <- function(dependencia, unidad, planeado, usuario = NA_character_,
                              nota = NA_character_) {
   planeado <- suppressWarnings(as.integer(planeado))
   if (is.na(planeado) || planeado < 0) {
     stop("El número planeado debe ser un entero mayor o igual a cero.", call. = FALSE)
   }
   db_exec("
-    INSERT INTO seguimiento.metas (dependencia, planeado, nota, actualizado, actualizado_por)
-    VALUES ($1, $2::int, $3, now(), $4)
-    ON CONFLICT (dependencia) DO UPDATE
+    INSERT INTO seguimiento.metas
+           (dependencia, planeado, nota, actualizado, actualizado_por, tipo_dependencia)
+    VALUES ($1, $2::int, $3, now(), $4, $5)
+    ON CONFLICT (dependencia, tipo_dependencia) DO UPDATE
        SET planeado = EXCLUDED.planeado,
            nota = EXCLUDED.nota,
            actualizado = now(),
            actualizado_por = EXCLUDED.actualizado_por",
-    params = list(dependencia, planeado, nota, usuario))
+    params = list(dependencia, planeado, nota, usuario, unidad))
   invisible(TRUE)
 }
 
@@ -1028,11 +1117,12 @@ seg_detalle <- function(dependencia) {
       FROM seguimiento.marco_completo m
       LEFT JOIN %s r ON m.id_anonimizado = r.id_anonimizado
       LEFT JOIN (%s) k ON m.id_anonimizado = k.id_anonimizado
-     WHERE m.dependencia = $1
+     WHERE (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = $1
      GROUP BY m.dependencia", SEG_RESPONDIO, seg_sql_cierre()), params = list(dependencia))
 
   meta <- db_get("SELECT planeado, nota, actualizado, actualizado_por
-                    FROM seguimiento.metas WHERE dependencia = $1",
+                    FROM seguimiento.metas
+                   WHERE (dependencia || ' · ' || tipo_dependencia) = $1",
                  params = list(dependencia))
 
   # La forma sale de SEG_FORMA (ODK si respondio, marco si no), igual que en
@@ -1047,7 +1137,7 @@ seg_detalle <- function(dependencia) {
         FROM seguimiento.marco_completo m
         LEFT JOIN %2$s r ON m.id_anonimizado = r.id_anonimizado
         LEFT JOIN %3$s f ON m.id_anonimizado = f.id_anonimizado
-       WHERE m.dependencia = $1
+       WHERE (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = $1
        GROUP BY 1 ORDER BY 1", expr, SEG_RESPONDIO, SEG_FORMA_ODK),
            params = list(dependencia))
   }
@@ -1059,7 +1149,7 @@ seg_detalle <- function(dependencia) {
   #          max(r.submission_date)                      AS ultima
   #     FROM seguimiento.respuestas r
   #     JOIN seguimiento.marco_completo m USING (id_anonimizado)
-  #    WHERE m.dependencia = $1", params = list(dependencia))
+  #    WHERE (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = $1", params = list(dependencia))
   campo <- db_get("
     SELECT count(*)::int                              AS n,
            round(avg(r.duracion_min)::numeric, 1)      AS duracion_media,
@@ -1067,7 +1157,7 @@ seg_detalle <- function(dependencia) {
            max(r.submission_date)                      AS ultima
       FROM public.respuestas_procesadas r
       JOIN seguimiento.marco_completo m ON m.id_anonimizado = r.id_anonimizado
-     WHERE m.dependencia = $1", params = list(dependencia))
+     WHERE (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = $1", params = list(dependencia))
 
   # Misma definicion de acumulado que usa el grafico global: personas por su
   # primer envio, no filas de respuesta. Si aqui se contara distinto, la curva
@@ -1158,7 +1248,7 @@ seg_personas <- function(dependencia) {
          ORDER BY c.fecha DESC, c.hora_inicio DESC
          LIMIT 1
       ) ci ON TRUE
-     WHERE m.dependencia = $1
+     WHERE (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = $1
      ORDER BY m.id_anonimizado", seg_sql_acepta()),
     params = list(dependencia, seg_ahora()))
 }
@@ -1368,7 +1458,7 @@ seg_serie <- function(dependencias = NULL, ahora = seg_ahora(), sin_marco = FALS
       SELECT m.id_anonimizado
         FROM seguimiento.marco_completo m
        WHERE m.estado_vinculacion = 'Activo'
-         AND ($1::boolean IS FALSE OR m.dependencia = ANY(string_to_array($2, chr(1))))
+         AND ($1::boolean IS FALSE OR (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = ANY(string_to_array($2, chr(1))))
     ),
     primera AS (
       SELECT r.id_anonimizado,
@@ -1448,7 +1538,7 @@ seg_serie_indicadores <- function(dependencias = NULL, ahora = seg_ahora(),
       SELECT m.id_anonimizado
         FROM seguimiento.marco_completo m
        WHERE m.estado_vinculacion = 'Activo'
-         AND ($1::boolean IS FALSE OR m.dependencia = ANY(string_to_array($2, chr(1))))
+         AND ($1::boolean IS FALSE OR (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = ANY(string_to_array($2, chr(1))))
     ),
     primera AS (
       SELECT r.id_anonimizado,
@@ -1514,7 +1604,7 @@ seg_conteos_forma <- function(dependencias = NULL, ahora = seg_ahora(), sin_marc
         FROM seguimiento.marco_completo m
         LEFT JOIN %3$s f ON m.id_anonimizado = f.id_anonimizado
        WHERE m.estado_vinculacion = 'Activo'
-         AND ($1::boolean IS FALSE OR m.dependencia = ANY(string_to_array($2, chr(1))))
+         AND ($1::boolean IS FALSE OR (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = ANY(string_to_array($2, chr(1))))
     ),
     env AS (
       SELECT r.id_anonimizado, %1$s AS efectiva
@@ -1608,7 +1698,7 @@ seg_marco_total <- function(dependencias = NULL) {
     SELECT count(*)::int AS n
       FROM seguimiento.marco_completo m
      WHERE m.estado_vinculacion = 'Activo'
-       AND ($1::boolean IS FALSE OR m.dependencia = ANY(string_to_array($2, chr(1))))",
+       AND ($1::boolean IS FALSE OR (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = ANY(string_to_array($2, chr(1))))",
     params = list(usar_dep, pg_lista(dependencias)))
   if (is.null(x) || nrow(x) == 0) 0L else as.integer(x$n[1])
 }
@@ -1681,7 +1771,7 @@ seg_ultimo_envio <- function(dependencias = NULL) {
       FROM public.respuestas_procesadas r
       JOIN seguimiento.marco_completo m ON m.id_anonimizado = r.id_anonimizado
      WHERE m.estado_vinculacion = 'Activo'
-       AND ($1::boolean IS FALSE OR m.dependencia = ANY(string_to_array($2, chr(1))))",
+       AND ($1::boolean IS FALSE OR (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = ANY(string_to_array($2, chr(1))))",
     params = list(usar_dep, pg_lista(dependencias)))
   if (is.null(x) || nrow(x) == 0) return(NA)
   x$ultimo[1]

@@ -357,7 +357,7 @@ mod_resultados_server <- function(id, r = reactiveValues()) {
     # R sobre este data.frame.
     datos <- reactive({
       if (!res_hay_datos()) return(NULL)
-      res_datos()
+      res_dependencia_con_unidad(res_datos())
     })
 
     # --- filtros -------------------------------------------------------------

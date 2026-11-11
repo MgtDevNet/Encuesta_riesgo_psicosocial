@@ -231,7 +231,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       a <- avance_base()
       b <- buscar()
       if (!nzchar(b)) return(a)
-      a[grepl(to_key(b), to_key(a$dependencia), fixed = TRUE), , drop = FALSE]
+      a[grepl(to_key(b), to_key(a$etiqueta), fixed = TRUE), , drop = FALSE]
     })
 
     # Sin filtro de unidades ni buscador se mira la universidad entera, y solo
@@ -243,11 +243,11 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       # Menor avance primero (lo urgente arriba); las demás, de mayor a menor.
       # El nombre desempata siempre, para que el orden sea estable.
       switch(input$orden %||% "faltan",
-        avance      = a[order( a$avance,   a$dependencia), , drop = FALSE],
-        faltan      = a[order(-a$faltan,   a$dependencia), , drop = FALSE],
-        encuestados = a[order(-a$encuestados, a$dependencia), , drop = FALSE],
-        planeado    = a[order(-a$planeado, a$dependencia), , drop = FALSE],
-        dependencia = a[order( a$dependencia), , drop = FALSE],
+        avance      = a[order( a$avance,   a$etiqueta), , drop = FALSE],
+        faltan      = a[order(-a$faltan,   a$etiqueta), , drop = FALSE],
+        encuestados = a[order(-a$encuestados, a$etiqueta), , drop = FALSE],
+        planeado    = a[order(-a$planeado, a$etiqueta), , drop = FALSE],
+        dependencia = a[order( a$etiqueta), , drop = FALSE],
         a)
     })
 
@@ -277,7 +277,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
                     pct_no_efectivas = NA_real_, cob_citados = NA_real_,
                     cob_esperados = NA_real_)
       ti <- if (nrow(a) == 0) list(total = ceros, A = ceros, B = ceros)
-            else seg_totales_indicadores(sort(a$dependencia), sin_marco = sin_filtro())
+            else seg_totales_indicadores(sort(a$clave), sin_marco = sin_filtro())
 
       caja <- function(valor, etiqueta, clase = "") {
         div(class = "kpi-caja",
@@ -340,7 +340,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       # misma se mire como se mire, y asi mover "Ordenar por" no cambia la cadena
       # que viaja al SQL. Colgado de avance(), cada reordenamiento repetia estas
       # dos consultas para dibujar el mismo grafico.
-      deps <- sort(a$dependencia)
+      deps <- sort(a$clave)
 
       # Los dos selectores viajan juntos: el grano arriba y la metrica debajo,
       # en el mismo sitio de la cabecera donde antes iba el unico que habia.
@@ -559,7 +559,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       op <- nr_opciones()
       dep <- input$nr_dependencia
       req(op, dep)
-      u <- op$dependencia$unidad[match(dep, op$dependencia$dependencia)]
+      u <- op$dependencia$unidad[match(dep, op$dependencia$clave)]
       if (!is.na(u)) div(class = "small text-muted mb-3", "Unidad: ", tags$b(u))
     })
 
@@ -912,7 +912,7 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
       ctrl <- selector_vista(ns("vista_det"), vista_det())
       if (identical(vista_det(), "semanas")) {
         grafico_semanas(seg_semanas(d$serie, desde = inicio_campo()), meta,
-                        seg_ultimo_envio(cab$dependencia[1]), control = ctrl)
+                        seg_ultimo_envio(seleccionada()), control = ctrl)
       } else {
         grafico_acumulado(d$serie, meta, control = ctrl)
       }
@@ -1129,13 +1129,14 @@ mod_seguimiento_server <- function(id, r = reactiveValues()) {
     output$bajar <- downloadHandler(
       filename = function() {
         sprintf("personas_%s_%s_%s.xlsx",
-                gsub("[^a-z0-9]+", "_", to_key(seleccionada() %||% "dependencia")),
+                gsub("[^a-z0-9]+", "_", to_key(detalle_dat()$cabecera$dependencia[1] %||% "dependencia")),
                 grupo_activo(), format(Sys.Date(), "%Y%m%d"))
       },
       content = function(archivo) {
         sub <- filtrar_personas(personas_ctc(), grupo_activo())
         salida <- data.frame(
-          dependencia        = rep(seleccionada() %||% NA_character_, nrow(sub)),
+          unidad             = rep(detalle_dat()$cabecera$tipo_dependencia[1] %||% NA_character_, nrow(sub)),
+          dependencia        = rep(detalle_dat()$cabecera$dependencia[1] %||% NA_character_, nrow(sub)),
           id_anonimizado     = sub$id_anonimizado,
           nombre             = sub$nombre %||% NA_character_,
           situacion          = unname(vapply(as.character(sub$situacion),
@@ -1264,22 +1265,22 @@ rejilla_tarjetas <- function(a, sel = NULL) {
     f <- a[i, ]
     e <- estado_avance(f$avance)
     div(
-      class = paste("tarjeta-dep", e$cls, if (identical(sel, f$dependencia)) "activa"),
-      `data-dep` = f$dependencia,
+      class = paste("tarjeta-dep", e$cls, if (identical(sel, f$clave)) "activa"),
+      `data-dep` = f$clave,
       tabindex = "0",
       role = "button",
-      `aria-pressed` = tolower(identical(sel, f$dependencia)),
+      `aria-pressed` = tolower(identical(sel, f$clave)),
       `aria-label` = sprintf("%s. Avance %s%%. %s de %s encuestados, faltan %s.",
-                             f$dependencia, f$avance, f$encuestados,
+                             f$etiqueta, f$avance, f$encuestados,
                              f$planeado, f$faltan),
 
-      div(class = "tarjeta-titulo", f$dependencia),
+      div(class = "tarjeta-titulo", f$etiqueta),
       div(class = "tarjeta-sede",
           chip_estado(e)),
 
       div(class = "progress tarjeta-barra", role = "progressbar",
           `aria-valuenow` = f$avance, `aria-valuemin` = 0, `aria-valuemax` = 100,
-          `aria-label` = paste("Avance de", f$dependencia),
+          `aria-label` = paste("Avance de", f$etiqueta),
           div(class = "progress-bar", style = sprintf("width: %s%%;", min(100, f$avance)))),
 
       div(class = "tarjeta-cifras",
@@ -1310,13 +1311,13 @@ tabla_dependencias <- function(a, sel = NULL) {
     e <- estado_avance(f$avance)
     p <- prioridad_pendientes(f$faltan)
     tags$tr(
-      class = paste("fila-dep", if (identical(sel, f$dependencia)) "activa"),
-      `data-dep` = f$dependencia,
+      class = paste("fila-dep", if (identical(sel, f$clave)) "activa"),
+      `data-dep` = f$clave,
       tabindex = "0",
       `aria-label` = sprintf("%s. Avance %s%%. Faltan %s personas de %s.",
-                             f$dependencia, f$avance, f$faltan, f$planeado),
+                             f$etiqueta, f$avance, f$faltan, f$planeado),
 
-      tags$td(class = "col-dep", f$dependencia),
+      tags$td(class = "col-dep", f$etiqueta),
       tags$td(
         div(class = "col-avance",
             div(class = paste("pista", e$cls), role = "img",
@@ -1446,19 +1447,19 @@ mosaico_semaforo <- function(a, sel = NULL) {
     f <- a[i, ]
     e <- estado_avance(f$avance)
     div(
-      class = paste("mosaico-dep", e$cls, if (identical(sel, f$dependencia)) "activa"),
+      class = paste("mosaico-dep", e$cls, if (identical(sel, f$clave)) "activa"),
       style = pintar(color_avance(f$avance)),
-      `data-dep` = f$dependencia,
+      `data-dep` = f$clave,
       tabindex = "0",
       role = "button",
-      `aria-pressed` = tolower(identical(sel, f$dependencia)),
+      `aria-pressed` = tolower(identical(sel, f$clave)),
       `aria-label` = sprintf("%s. %s. Avance %s%%. %s de %s encuestados, faltan %s.",
-                             f$dependencia, e$txt, f$avance, f$encuestados,
+                             f$etiqueta, e$txt, f$avance, f$encuestados,
                              f$planeado, f$faltan),
 
       div(class = "mos-estado",
           span(`aria-hidden` = "true", e$sig), span(e$txt)),
-      div(class = "mos-nombre", f$dependencia),
+      div(class = "mos-nombre", f$etiqueta),
       div(class = "mos-pct", fmt_pct(f$avance)),
       div(class = "mos-pie",
           span(sprintf("%s / %s", f$encuestados, f$planeado)),
@@ -1829,8 +1830,10 @@ modal_no_registrado <- function(ns, f, op) {
     size = "m",
     easyClose = FALSE,
     div(
+      # Se elige la clave "nombre · unidad": un nombre repetido en varias
+      # unidades sale una vez por cada una (ver seg_opciones_no_registrados()).
       elegir("nr_dependencia", SEG_NR_CAMPOS[["dependencia"]],
-             op$dependencia$dependencia),
+             stats::setNames(op$dependencia$clave, op$dependencia$etiqueta)),
       uiOutput(ns("nr_unidad")),
       elegir("nr_tipo_vinculacion", SEG_NR_CAMPOS[["tipo_vinculacion"]],
              op$tipo_vinculacion),
@@ -3147,7 +3150,7 @@ inf_flex <- function(df, pesos = rep(1, ncol(df))) {
 
 informe_word <- function(a, archivo, filtros = character(0), desde = NULL,
                          sin_marco = FALSE) {
-  deps  <- sort(a$dependencia)
+  deps  <- sort(a$clave)
   vacio <- nrow(a) == 0
   t     <- seg_totales(a)
   # Sin dependencias no se consulta: la lista vacia el SQL la lee como "todas"

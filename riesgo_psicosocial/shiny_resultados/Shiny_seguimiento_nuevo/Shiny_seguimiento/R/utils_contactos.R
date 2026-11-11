@@ -200,7 +200,8 @@ limpiar_texto <- function(x) {
 
 # Una fila por persona CON contactos: cuantos lleva, cuando fue el ultimo, por
 # que medio y si hoy esta en rechazo. Una sola consulta por dependencia, que se
-# pega despues a la lista de personas.
+# pega despues a la lista de personas. `dependencia` es la clave
+# "nombre · unidad" de seg_avance(): hay nombres repetidos en varias unidades.
 #
 # El desenlace lo decide el ULTIMO contacto y no un "alguna vez dijo que no":
 # asi se corrige registrando un contacto nuevo --que es como se corrige todo
@@ -215,7 +216,7 @@ cto_resumen_dependencia <- function(dependencia) {
            (array_agg(c.resultado  ORDER BY c.fecha DESC, c.id DESC))[1] AS resultado
       FROM seguimiento.contactos c
       JOIN seguimiento.marco_completo m USING (id_anonimizado)
-     WHERE m.dependencia = $1
+     WHERE (m.dependencia || ' · ' || COALESCE(m.tipo_dependencia, '')) = $1
      GROUP BY c.id_anonimizado",
     params = list(dependencia))
 }
