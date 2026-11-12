@@ -311,9 +311,18 @@ fmt_pct <- function(x, dec = 1) {
 }
 
 # Fecha/hora legible para mostrar en pantalla (la base guarda timestamptz).
+# Los momentos llegan de la base en UTC (RPostgres los entrega asi): se
+# muestran en la hora de Colombia, que es la de la base y la del campo. Sin el
+# tz, la bitacora y las respuestas salian 5 horas adelantadas.
+HORA_LOCAL <- "America/Bogota"
+fmt_local <- function(x, formato) {
+  if (inherits(x, "Date")) return(format(x, formato))
+  format(as.POSIXct(x), formato, tz = HORA_LOCAL)
+}
+
 fmt_momento <- function(x) {
   if (length(x) == 0 || all(is.na(x))) return(NA_character_)
-  format(as.POSIXct(x), "%Y-%m-%d %H:%M")
+  fmt_local(x, "%Y-%m-%d %H:%M")
 }
 
 # Version para columnas de tabla: un texto por elemento, con relleno para los
@@ -321,7 +330,7 @@ fmt_momento <- function(x) {
 # un dato suelto pero desalinea una columna.
 fmt_momento_v <- function(x, vacio = "\u2014") {
   if (length(x) == 0) return(character(0))
-  out <- format(as.POSIXct(x), "%Y-%m-%d %H:%M")
+  out <- fmt_local(x, "%Y-%m-%d %H:%M")
   ifelse(is.na(out), vacio, out)
 }
 
@@ -337,6 +346,6 @@ fmt_fecha <- function(x, vacio = "\u2014") {
 # Solo la fecha: en una tabla de 244 filas la hora es ruido.
 fmt_dia <- function(x, vacio = "\u2014") {
   if (length(x) == 0) return(character(0))
-  out <- format(as.POSIXct(x), "%Y-%m-%d")
+  out <- fmt_local(x, "%Y-%m-%d")
   ifelse(is.na(out), vacio, out)
 }

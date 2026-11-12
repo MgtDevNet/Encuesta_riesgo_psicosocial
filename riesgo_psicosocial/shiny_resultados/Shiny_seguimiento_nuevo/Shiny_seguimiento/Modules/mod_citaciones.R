@@ -483,7 +483,7 @@ mod_agenda_ui <- function(id) {
             "Excel (primera hoja) o CSV, con una fila por persona citada. ",
             "Columnas obligatorias: ", tags$b("fecha"), ", ",
             tags$b("hora inicio programada"), ", ", tags$b("hora final programada"),
-            " e ", tags$b("id"), " (el id anonimizado). ",
+            " e ", tags$b("id"), " (la cédula, como en el marco). ",
             "Opcionales: ", tags$b("link"), " (http o https) y ", tags$b("persona"),
             ", el nombre, que solo ven el psicólogo del grupo y el administrador ",
             "al anotar la sesión.")
@@ -582,7 +582,7 @@ mod_agenda_server <- function(id, r = reactiveValues()) {
             " y no va", if (length(rv$fuera) != 1) "n", " a contar en ningún avance (",
             paste(utils::head(rv$fuera, 5), collapse = ", "),
             if (length(rv$fuera) > 5) ", …", "). ",
-            "Revise que la columna de id traiga el id anonimizado y no la cédula."),
+            "Revise que la columna de id traiga la cédula, sin puntos ni espacios."),
             "warning"),
 
           if (nrow(rv$capacidad)) alerta(tagList(
